@@ -73,6 +73,7 @@ public protocol AudioProcessing {
 
   /// Resume recording audio from the specified input device, appending to continuous `audioArray` after pause
   func resumeRecordingLive(inputDeviceID: DeviceID?, callback: (([Float]) -> Void)?) throws
+
 }
 
 /// Overrideable default methods for AudioProcessing
@@ -191,10 +192,15 @@ extension AudioProcessing {
 @available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
 public class AudioProcessor: NSObject, AudioProcessing {
   private var lastInputDevice: DeviceID?
+  private var currentTap: ProcessTapProtocol?
+  private let processingQueue = DispatchQueue(
+    label: "com.whisperkit.audioProcessor.processingQueue", qos: .userInitiated)
+  private var accumulationBuffer: AVAudioPCMBuffer?
+
   public var audioEngine: AVAudioEngine?
 
   // Add serial queue for thread-safe access
-  private let audioQueue = DispatchQueue(label: "com.whisperkit.audioprocessor.queue")
+  private let audioQueue = DispatchQueue(label: "com.whisperkit.audioprocessor.audioSampleQueue")
   private var _audioSamples: ContiguousArray<Float> = []
   public var audioSamples: ContiguousArray<Float> {
     get {
@@ -1006,5 +1012,167 @@ extension AudioProcessor {
     // Stop the audio engine
     audioEngine?.stop()
     audioEngine = nil
+  }
+}
+
+protocol ProcessTapProtocol {
+  func activate()
+  func invalidate(reason: ProcessTapInvalidationReason)
+
+  var activated: Bool { get }
+    
+  var tapStreamDescription: AudioStreamBasicDescription? { get }
+
+  func run(
+    on queue: DispatchQueue, ioBlock: @escaping AudioDeviceIOBlock,
+    invalidationHandler: ((ProcessTapProtocol, ProcessTapInvalidationReason) -> Void)?
+  ) throws
+}
+
+enum ProcessTapInvalidationReason {
+    case processTerminated
+    case audioDeviceChaned
+}
+
+extension AudioProcessor {
+  @MainActor
+  func startRecordingLiveOutput(
+    tap: ProcessTapProtocol,
+    callback: (([Float]) -> Void)? = nil,
+    invalidationHandler: ((ProcessTapProtocol, ProcessTapInvalidationReason) -> Void)? =
+      nil
+  ) throws {
+    audioSamples = []
+    audioEnergy = []
+
+    try? setupAudioSessionForDevice()
+
+    try setupEngineForOutput(
+        tap: tap,
+      invalidationHandler: invalidationHandler
+    )
+
+    // Set the callback
+    audioBufferCallback = callback
+  }
+
+  @MainActor
+  func setupEngineForOutput(
+    tap: ProcessTapProtocol,
+    invalidationHandler: ((ProcessTapProtocol, ProcessTapInvalidationReason) -> Void)?
+  ) throws {
+
+    // Clean up existing tap if any
+    currentTap?.invalidate(reason: .processTerminated)
+
+    self.currentTap = tap
+
+    if currentTap?.activated == false { currentTap?.activate() }
+
+    guard var streamDescription = currentTap?.tapStreamDescription else {
+      throw WhisperError.audioProcessingFailed("Tap stream description not available.")
+    }
+
+    guard let nodeFormat = AVAudioFormat(streamDescription: &streamDescription) else {
+      throw WhisperError.audioProcessingFailed("Failed to create AVAudioFormat.")
+    }
+
+    // Desired format (16,000 Hz, 1 channel)
+    guard
+      let desiredFormat = AVAudioFormat(
+        commonFormat: .pcmFormatFloat32, sampleRate: Double(WhisperKit.sampleRate),
+        channels: AVAudioChannelCount(1), interleaved: false)
+    else {
+      throw WhisperError.audioProcessingFailed("Failed to create desired format")
+    }
+
+    guard let converter = AVAudioConverter(from: nodeFormat, to: desiredFormat) else {
+      throw WhisperError.audioProcessingFailed("Failed to create audio converter")
+    }
+
+    self.accumulationBuffer =
+      AVAudioPCMBuffer(pcmFormat: nodeFormat, frameCapacity: AVAudioFrameCount(minBufferLength))!
+    self.accumulationBuffer?.frameLength = 0
+
+    try tap.run(
+      on: processingQueue,
+      ioBlock: { [weak self] _, inInputData, _, _, _ in
+        guard let self = self else { return }
+        self.processInputData(inInputData, nodeFormat: nodeFormat, converter: converter)
+      }, invalidationHandler: invalidationHandler
+    )
+  }
+
+  private func processInputData(
+    _ inInputData: UnsafePointer<AudioBufferList>,
+    nodeFormat: AVAudioFormat,
+    converter: AVAudioConverter
+  ) {
+    // Convert input data to AVAudioPCMBuffer
+    let audioBuffer = inInputData.pointee.mBuffers
+    guard let dataPointer = audioBuffer.mData else {
+      Logging.error("Invalid audio buffer data")
+      return
+    }
+
+    // Determine frame count correctly
+    let incomingFrameCount = audioBuffer.mDataByteSize / UInt32(MemoryLayout<Float>.size)
+
+    // Create AVAudioPCMBuffer
+    guard
+      var pcmBuffer = AVAudioPCMBuffer(
+        pcmFormat: nodeFormat,
+        frameCapacity: AVAudioFrameCount(incomingFrameCount)
+      )
+    else {
+      Logging.error("Failed to create PCM buffer")
+      return
+    }
+
+    pcmBuffer.frameLength = AVAudioFrameCount(incomingFrameCount)
+
+    guard let accBuffer = accumulationBuffer else {
+      Logging.error("Accumulation buffer is nil")
+      return
+    }
+
+    let accFramesUsed = accBuffer.frameLength
+    let accFramesAvailable = accBuffer.frameCapacity - accFramesUsed
+    let framesToCopy = min(accFramesAvailable, incomingFrameCount)
+
+    // Copy data safely
+    if let dstPointer = accBuffer.floatChannelData?[0] {
+      let sourcePointer = dataPointer.assumingMemoryBound(to: Float.self)
+      // Use memcpy for safe memory copying
+      memcpy(
+        dstPointer.advanced(by: Int(accFramesUsed)),
+        sourcePointer,
+        Int(framesToCopy) * MemoryLayout<Float>.size
+      )
+    }
+
+    accBuffer.frameLength += framesToCopy
+
+    if accBuffer.frameLength == AVAudioFrameCount(minBufferLength) {
+      if !accBuffer.format.sampleRate.isEqual(to: Double(WhisperKit.sampleRate)) {
+        do {
+          pcmBuffer = try Self.resampleBuffer(accBuffer, with: converter)
+        } catch {
+          Logging.error("Failed to resample buffer: \(error)")
+          return
+        }
+      } else {
+        pcmBuffer = accBuffer
+      }
+
+      let newBufferArray = Self.convertBufferToArray(buffer: pcmBuffer)
+      self.processBuffer(newBufferArray)
+
+      self.accumulationBuffer = AVAudioPCMBuffer(
+        pcmFormat: nodeFormat,
+        frameCapacity: AVAudioFrameCount(minBufferLength)
+      )!
+      self.accumulationBuffer?.frameLength = 0
+    }
   }
 }
