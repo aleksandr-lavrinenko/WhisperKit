@@ -1015,7 +1015,7 @@ extension AudioProcessor {
   }
 }
 
-protocol ProcessTapProtocol {
+public protocol ProcessTapProtocol {
   func activate()
   func invalidate(reason: ProcessTapInvalidationReason)
 
@@ -1029,7 +1029,7 @@ protocol ProcessTapProtocol {
   ) throws
 }
 
-enum ProcessTapInvalidationReason {
+public enum ProcessTapInvalidationReason {
   case processTerminated
   case audioDeviceChaned
 }
