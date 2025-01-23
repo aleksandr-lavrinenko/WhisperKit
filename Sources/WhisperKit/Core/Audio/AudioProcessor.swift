@@ -1020,7 +1020,7 @@ protocol ProcessTapProtocol {
   func invalidate(reason: ProcessTapInvalidationReason)
 
   var activated: Bool { get }
-    
+
   var tapStreamDescription: AudioStreamBasicDescription? { get }
 
   func run(
@@ -1030,13 +1030,13 @@ protocol ProcessTapProtocol {
 }
 
 enum ProcessTapInvalidationReason {
-    case processTerminated
-    case audioDeviceChaned
+  case processTerminated
+  case audioDeviceChaned
 }
 
 extension AudioProcessor {
   @MainActor
-  func startRecordingLiveOutput(
+  public func startRecordingLiveOutput(
     tap: ProcessTapProtocol,
     callback: (([Float]) -> Void)? = nil,
     invalidationHandler: ((ProcessTapProtocol, ProcessTapInvalidationReason) -> Void)? =
@@ -1048,7 +1048,7 @@ extension AudioProcessor {
     try? setupAudioSessionForDevice()
 
     try setupEngineForOutput(
-        tap: tap,
+      tap: tap,
       invalidationHandler: invalidationHandler
     )
 
