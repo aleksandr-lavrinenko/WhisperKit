@@ -55,6 +55,9 @@ public protocol AudioProcessing {
   /// Empties the audio samples array, keeping the last `keep` samples
   func purgeAudioSamples(keepingLast keep: Int)
 
+  /// Purges silence from the audio samples array, keeping 10 seconds before the silence and 5 last seconds of audio
+  func purgeSilnceFromSamples(silenceLength: Int)
+
   /// A measure of current buffer's energy in dB normalized from 0 - 1 based on the quietest buffer's energy in a specified window
   var relativeEnergy: [Float] { get }
 
