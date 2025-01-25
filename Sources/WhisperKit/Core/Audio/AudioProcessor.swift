@@ -967,6 +967,7 @@ extension AudioProcessor {
     audioQueue.sync(flags: .barrier) {
       let totalSamples = _audioSamples.count
       let middleSecond = WhisperKit.sampleRate * 10  // 1 second of samples
+      let endSeconds = WhisperKit.sampleRate * 5
 
       // If we don't have enough samples for meaningful processing, return early
       if totalSamples <= (middleSecond + silenceLength) {
@@ -982,7 +983,7 @@ extension AudioProcessor {
         _audioSamples.removeSubrange(0..<startIndex)
       }
       if _audioSamples.count > middleSecond {
-        _audioSamples.removeSubrange(middleSecond..._audioSamples.count - 1)
+        _audioSamples.removeSubrange(middleSecond...(_audioSamples.count - 1 - endSeconds))
       }
     }
   }
