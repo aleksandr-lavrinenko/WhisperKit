@@ -956,9 +956,33 @@ extension AudioProcessor {
   }
 
   public func purgeAudioSamples(keepingLast keep: Int) {
-    audioQueue.sync {
+    audioQueue.sync(flags: .barrier) {
       if _audioSamples.count > keep {
         _audioSamples = ContiguousArray(_audioSamples.suffix(keep))
+      }
+    }
+  }
+
+  public func purgeSilnceFromSamples(silenceLength: Int) {
+    audioQueue.sync(flags: .barrier) {
+      let totalSamples = _audioSamples.count
+      let middleSecond = WhisperKit.sampleRate * 10  // 1 second of samples
+
+      // If we don't have enough samples for meaningful processing, return early
+      if totalSamples <= (middleSecond + silenceLength) {
+        return
+      }
+
+      // Calculate the range to keep
+      let endIndex = totalSamples - silenceLength
+      let startIndex = max(0, endIndex - middleSecond)
+
+      // Use removeSubrange for efficient removal without creating new array
+      if startIndex > 0 {
+        _audioSamples.removeSubrange(0..<startIndex)
+      }
+      if _audioSamples.count > middleSecond {
+        _audioSamples.removeSubrange(middleSecond..._audioSamples.count - 1)
       }
     }
   }
