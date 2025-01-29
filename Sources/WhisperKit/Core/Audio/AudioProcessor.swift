@@ -66,7 +66,9 @@ public protocol AudioProcessing {
   var relativeEnergyWindow: Int { get set }
 
   /// Starts recording audio from the specified input device, resetting the previous state
-  func startRecordingLive(inputDeviceID: DeviceID?, callback: (([Float]) -> Void)?) throws
+  func startRecordingLive(
+    inputDeviceID: DeviceID?, noiseGate: Bool, callback: (([Float]) -> Void)?
+  ) throws
 
   /// Pause recording
   func pauseRecording()
@@ -92,10 +94,10 @@ extension AudioProcessing {
     }.value
   }
 
-  public func startRecordingLive(inputDeviceID: DeviceID? = nil, callback: (([Float]) -> Void)?)
-    throws
-  {
-    try startRecordingLive(inputDeviceID: inputDeviceID, callback: callback)
+  public func startRecordingLive(
+    inputDeviceID: DeviceID? = nil, noiseGate: Bool = false, callback: (([Float]) -> Void)?
+  ) throws {
+    try startRecordingLive(inputDeviceID: inputDeviceID, noiseGate: noiseGate, callback: callback)
   }
 
   public func resumeRecordingLive(inputDeviceID: DeviceID? = nil, callback: (([Float]) -> Void)?)
@@ -1070,7 +1072,7 @@ extension AudioProcessor {
   }
 
   public func startRecordingLive(
-    inputDeviceID: DeviceID? = nil, callback: (([Float]) -> Void)? = nil
+    inputDeviceID: DeviceID? = nil, noiseGate: Bool = false, callback: (([Float]) -> Void)? = nil
   ) throws {
     audioQueue.sync {
       _audioSamples = []
@@ -1080,7 +1082,7 @@ extension AudioProcessor {
 
     try? setupAudioSessionForDevice()
 
-    audioEngine = try setupEngine(inputDeviceID: inputDeviceID)
+    audioEngine = try setupEngine(inputDeviceID: inputDeviceID, noiseGate: noiseGate)
 
     // Set the callback
     audioBufferCallback = callback
