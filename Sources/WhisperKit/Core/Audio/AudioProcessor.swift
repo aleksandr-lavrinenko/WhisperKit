@@ -934,8 +934,18 @@ extension AudioProcessor {
       throw WhisperError.audioProcessingFailed("Failed to create audio converter")
     }
 
+    let eq = AVAudioUnitEQ(numberOfBands: 2)
+
+    // 🎛️ Configure the EQ for noise reduction
+    configureEQ(eq)
+
+    // 🔌 Connect the nodes: input → EQ → main engine
+    audioEngine.attach(eq)
+    audioEngine.connect(inputNode, to: eq, format: nodeFormat)
+    audioEngine.connect(eq, to: audioEngine.mainMixerNode, format: nodeFormat)
+
     let bufferSize = AVAudioFrameCount(minBufferLength)  // 100ms - 400ms supported
-    inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: nodeFormat) {
+    eq.installTap(onBus: 0, bufferSize: bufferSize, format: nodeFormat) {
       [weak self] (buffer: AVAudioPCMBuffer, _: AVAudioTime) in
       guard let self = self else { return }
       var buffer = buffer
@@ -956,6 +966,26 @@ extension AudioProcessor {
     try audioEngine.start()
 
     return audioEngine
+  }
+
+  private func configureEQ(_ eq: AVAudioUnitEQ) {
+    eq.globalGain = 0.0  // No overall gain change
+
+    // 🎚 Band 1: High-pass filter (Removes low-frequency hum)
+    let lowCutFilter = eq.bands[0]
+    lowCutFilter.filterType = .highPass
+    lowCutFilter.frequency = 100.0  // Removes noise below 100Hz
+    lowCutFilter.bandwidth = 1.0
+    lowCutFilter.gain = 0.0
+    lowCutFilter.bypass = false
+
+    // 🎚 Band 2: Mid-frequency noise reduction (typing, clicks)
+    let midNoiseReduction = eq.bands[1]
+    midNoiseReduction.filterType = .parametric
+    midNoiseReduction.frequency = 2000.0  // Reduce noise in 2kHz range
+    midNoiseReduction.bandwidth = 1.0
+    midNoiseReduction.gain = -10.0  // Reduce noise intensity
+    midNoiseReduction.bypass = false
   }
 
   public func purgeAudioSamples(keepingLast keep: Int) {
