@@ -900,7 +900,9 @@ extension AudioProcessor {
     #endif
   }
 
-  public func setupEngine(inputDeviceID: DeviceID? = nil) throws -> AVAudioEngine {
+  public func setupEngine(inputDeviceID: DeviceID? = nil, noiseGate: Bool = false) throws
+    -> AVAudioEngine
+  {
     let audioEngine = AVAudioEngine()
     let inputNode = audioEngine.inputNode
 
@@ -939,13 +941,16 @@ extension AudioProcessor {
     // 🎛️ Configure the EQ for noise reduction
     let noiseGateAU = try createDynamicsProcessor()
 
-    // Attach AU unit to the audio engine
-    audioEngine.attach(noiseGateAU)
-    audioEngine.connect(inputNode, to: noiseGateAU, format: nodeFormat)
-    audioEngine.connect(noiseGateAU, to: audioEngine.mainMixerNode, format: nodeFormat)
+    if noiseGate {
+      audioEngine.attach(noiseGateAU)
+      audioEngine.connect(inputNode, to: noiseGateAU, format: nodeFormat)
+      audioEngine.connect(noiseGateAU, to: audioEngine.mainMixerNode, format: nodeFormat)
+    }
 
     let bufferSize = AVAudioFrameCount(minBufferLength)  // 100ms - 400ms supported
-    noiseGateAU.installTap(onBus: 0, bufferSize: bufferSize, format: nodeFormat) {
+
+    let tapDestination = noiseGate ? noiseGateAU : inputNode
+    tapDestination.installTap(onBus: 0, bufferSize: bufferSize, format: nodeFormat) {
       [weak self] (buffer: AVAudioPCMBuffer, _: AVAudioTime) in
       guard let self = self else { return }
       var buffer = buffer
@@ -991,19 +996,23 @@ extension AudioProcessor {
     guard let paramTree = noiseGate.auAudioUnit.parameterTree else { return }
 
     // Gate Threshold (set to -50dB to filter out quiet background noise)
-    let threshold = paramTree.parameter(withAddress: AUParameterAddress(kDynamicsProcessorParam_Threshold))
+    let threshold = paramTree.parameter(
+      withAddress: AUParameterAddress(kDynamicsProcessorParam_Threshold))
     threshold?.value = -50.0  // dB
 
     // Expansion Ratio (higher means more aggressive noise reduction)
-    let expansionRatio = paramTree.parameter(withAddress: AUParameterAddress(kDynamicsProcessorParam_ExpansionRatio))
+    let expansionRatio = paramTree.parameter(
+      withAddress: AUParameterAddress(kDynamicsProcessorParam_ExpansionRatio))
     expansionRatio?.value = 2.0  // 1.0 = no effect, >1.0 = noise gate behavior
 
     // Attack Time (fast attack ensures quick noise gating)
-    let attackTime = paramTree.parameter(withAddress: AUParameterAddress(kDynamicsProcessorParam_AttackTime))
+    let attackTime = paramTree.parameter(
+      withAddress: AUParameterAddress(kDynamicsProcessorParam_AttackTime))
     attackTime?.value = 0.01  // Seconds (fast response to speech)
 
     // Release Time (controls how quickly noise comes back)
-    let releaseTime = paramTree.parameter(withAddress: AUParameterAddress(kDynamicsProcessorParam_ReleaseTime))
+    let releaseTime = paramTree.parameter(
+      withAddress: AUParameterAddress(kDynamicsProcessorParam_ReleaseTime))
     releaseTime?.value = 0.1  // Seconds
   }
 
