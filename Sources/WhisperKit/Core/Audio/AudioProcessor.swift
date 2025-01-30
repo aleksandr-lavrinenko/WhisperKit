@@ -123,9 +123,12 @@ extension AudioProcessing {
 
     if actualFrameLength > 0 {
       audioArray.withUnsafeBufferPointer { sourcePointer in
-        audioSamplesArray.dataPointer.assumingMemoryBound(to: Float.self).advanced(by: 0)
-          .initialize(
-            from: sourcePointer.baseAddress!.advanced(by: startIndex), count: actualFrameLength)
+        let destPointer = audioSamplesArray.dataPointer.assumingMemoryBound(to: Float.self)
+
+        for i in 0..<actualFrameLength {
+          let value = sourcePointer[startIndex + i]
+          destPointer[i] = (abs(value) == 0.0) ? (value == -0.0 ? -0.00004 : 0.00004) : value  // ✅ Replace -0.0 with 0.00004
+        }
       }
     }
 
