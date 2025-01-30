@@ -100,7 +100,7 @@ open class FeatureExtractor: FeatureExtracting, WhisperMLModel {
 
         let options = MLPredictionOptions()
         options.usesCPUOnly = true
-        let modelInputs = MelSpectrogramInput(audio: inputArray)
+        let modelInputs = MelSpectrogramInput(audio: inputArray!)
         let outputFeatures = try await model.asyncPrediction(from: modelInputs, options: options)
         let output = MelSpectrogramOutput(features: outputFeatures)
         return output.melspectrogramFeatures
