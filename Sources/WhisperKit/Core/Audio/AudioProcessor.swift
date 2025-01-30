@@ -134,7 +134,7 @@ extension AudioProcessing {
 
     // If the buffer is smaller than the desired frameLength, pad the rest with zeros using vDSP
     if actualFrameLength < frameLength {
-      let fillValue: Float = 0.00004  // 🔥 Use this value instead of 0.0
+      var fillValue: Float = 0.00004  // 🔥 Use this value instead of 0.0
 
       vDSP_vfill(
         &fillValue,  // ✅ Value to fill
