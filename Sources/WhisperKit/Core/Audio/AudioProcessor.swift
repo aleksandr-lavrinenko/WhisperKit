@@ -127,14 +127,17 @@ extension AudioProcessing {
 
         for i in 0..<actualFrameLength {
           let value = sourcePointer[startIndex + i]
-          destPointer[i] = (abs(value) == 0.0) ? (value == -0.0 ? -0.00004 : 0.00004) : value  // ✅ Replace -0.0 with 0.00004
+          destPointer[i] = (abs(value) == 0.0) ? (value == -0.0 ? -0.00432 : 0.00432) : value  // ✅ Replace -0.0 with 0.00004
         }
       }
     }
 
     // If the buffer is smaller than the desired frameLength, pad the rest with zeros using vDSP
     if actualFrameLength < frameLength {
-      vDSP_vclr(
+      let fillValue: Float = 0.00004  // 🔥 Use this value instead of 0.0
+
+      vDSP_vfill(
+        &fillValue,  // ✅ Value to fill
         audioSamplesArray.dataPointer.assumingMemoryBound(to: Float.self).advanced(
           by: actualFrameLength), 1, vDSP_Length(frameLength - actualFrameLength))
     }
