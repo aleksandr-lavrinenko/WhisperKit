@@ -45,14 +45,50 @@ open class FeatureExtractor: FeatureExtracting, WhisperMLModel {
             throw WhisperError.modelsUnavailable()
         }
         try Task.checkCancellation()
+        
+        if checkForNaNOrInf(array: inputAudio) {
+            print("🚨 Warning: NaN or Inf found in inputAudio!")
+        }
+        
+        clipSmallValues(array: inputAudio)
+        
+        if checkForNaNOrInf(array: inputAudio) {
+            print("🚨 Warning: NaN or Inf found in inputAudio!")
+        }
+        
+        print("Input Audio Shape: \(inputAudio.shape)") // Expecting [480000]
+        print("Input Audio Count: \(inputAudio.count)") // Should match 480000
+        print("Input Audio Data Type: \(inputAudio.dataType)") // Should be .float32
 
         let interval = Logging.beginSignpost("ExtractAudioFeatures", signposter: Logging.FeatureExtractor.signposter)
         defer { Logging.endSignpost("ExtractAudioFeatures", interval: interval, signposter: Logging.FeatureExtractor.signposter) }
 
+        let options = MLPredictionOptions()
+        options.usesCPUOnly = true
         let modelInputs = MelSpectrogramInput(audio: inputAudio)
-        let outputFeatures = try await model.asyncPrediction(from: modelInputs, options: MLPredictionOptions())
+        let outputFeatures = try await model.asyncPrediction(from: modelInputs, options: options)
         let output = MelSpectrogramOutput(features: outputFeatures)
         return output.melspectrogramFeatures
     }
 
+    
+    func checkForNaNOrInf(array: MLMultiArray) -> Bool {
+        let ptr = array.dataPointer.assumingMemoryBound(to: Float.self)
+        for i in 0..<array.count {
+            if ptr[i].isNaN || ptr[i].isInfinite {
+                print("Found NaN or Inf at index \(i): \(ptr[i])")
+                return true
+            }
+        }
+        return false
+    }
+    
+    func clipSmallValues(array: MLMultiArray, minValue: Float = 2e-4) {
+        let ptr = array.dataPointer.assumingMemoryBound(to: Float.self)
+        for i in 0..<array.count {
+            if ptr[i] < minValue || abs(ptr[i]) == 0.0 {
+                ptr[i] = minValue
+            }
+        }
+    }
 }
