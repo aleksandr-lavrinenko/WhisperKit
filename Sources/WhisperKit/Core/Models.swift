@@ -9,7 +9,7 @@ import NaturalLanguage
 import Tokenizers
 
 #if !((os(macOS) || targetEnvironment(macCatalyst)) && arch(x86_64))
-public typealias FloatType = Float16
+public typealias FloatType = UInt16
 #else
 public typealias FloatType = Float
 #endif

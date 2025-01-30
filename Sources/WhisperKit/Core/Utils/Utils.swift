@@ -73,11 +73,12 @@ extension MLMultiArray {
 
     func fillLastDimension(indexes: Range<Int>, with value: FloatType) {
         precondition(shape.count == 3 && shape[0] == 1 && shape[1] == 1, "Must have [1, 1, n] shape")
-        withUnsafeMutableBufferPointer(ofType: FloatType.self) { ptr, strides in
-            for index in indexes {
-                ptr[index * strides[2]] = value
-            }
-        }
+        withUnsafeMutableBytes { rawPointer, strides in
+              let ptr = rawPointer.bindMemory(to: UInt16.self).baseAddress!
+              for index in indexes {
+                  ptr[index * strides[2]] = value
+              }
+          }
     }
 
     func fill<Value>(indexes: [[NSNumber]], with value: Value) {
@@ -136,7 +137,7 @@ public extension MLTensor {
                 case is Float32.Type:
                     result = await self.shapedArray(of: Float32.self).scalars.map { Float($0) }
                 case is FloatType.Type:
-                    result = await self.shapedArray(of: FloatType.self).scalars.map { Float($0) }
+                    result = await self.shapedArray(of: Float32.self).scalars.map { Float($0) }
                 case is Float.Type:
                     result = await self.shapedArray(of: Float.self).scalars.map { Float($0) }
                 case is Int32.Type:
@@ -151,31 +152,31 @@ public extension MLTensor {
         return result
     }
 
-    func asMLMultiArray() -> MLMultiArray {
-        let semaphore = DispatchSemaphore(value: 0)
-        let tensorType = self.scalarType
-
-        var result: MLMultiArray = initMLMultiArray(shape: [1], dataType: .float16, initialValue: 0.0)
-
-        Task(priority: .high) {
-            switch tensorType {
-                case is Float32.Type:
-                    result = MLMultiArray(await self.shapedArray(of: Float32.self))
-                case is FloatType.Type:
-                    result = MLMultiArray(await self.shapedArray(of: FloatType.self))
-                case is Float.Type:
-                    result = MLMultiArray(await self.shapedArray(of: Float.self))
-                case is Int32.Type:
-                    result = MLMultiArray(await self.shapedArray(of: Int32.self))
-                default:
-                    fatalError("Unsupported data type")
-            }
-            semaphore.signal()
-        }
-
-        semaphore.wait()
-        return result
-    }
+//    func asMLMultiArray() -> MLMultiArray {
+//        let semaphore = DispatchSemaphore(value: 0)
+//        let tensorType = self.scalarType
+//
+//        var result: MLMultiArray = initMLMultiArray(shape: [1], dataType: .float16, initialValue: 0.0)
+//
+//        Task(priority: .high) {
+//            switch tensorType {
+//                case is Float32.Type:
+//                    result = MLMultiArray(await self.shapedArray(of: Float32.self))
+//                case is FloatType.Type:
+//                    result = MLMultiArray(await self.shapedArray(of: FloatType.self))
+//                case is Float.Type:
+//                    result = MLMultiArray(await self.shapedArray(of: Float.self))
+//                case is Int32.Type:
+//                    result = MLMultiArray(await self.shapedArray(of: Int32.self))
+//                default:
+//                    fatalError("Unsupported data type")
+//            }
+//            semaphore.signal()
+//        }
+//
+//        semaphore.wait()
+//        return result
+//    }
 }
 #endif
 

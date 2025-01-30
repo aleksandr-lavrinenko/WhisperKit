@@ -21,7 +21,7 @@ open class SuppressTokensFilter: LogitsFiltering {
     }
 
     public func filterLogits(_ logits: MLMultiArray, withTokens tokens: [Int]) -> MLMultiArray {
-        logits.fill(indexes: suppressTokenIndexes, with: -FloatType.infinity)
+        logits.fill(indexes: suppressTokenIndexes, with: FloatType.negativeInfinity)
         return logits
     }
 }
@@ -48,7 +48,7 @@ open class SuppressBlankFilter: LogitsFiltering {
         guard tokens.count == sampleBegin else {
             return logits
         }
-        logits.fill(indexes: suppressTokenIndexes, with: -FloatType.infinity)
+        logits.fill(indexes: suppressTokenIndexes, with: FloatType.negativeInfinity)
         return logits
     }
 }
@@ -82,7 +82,7 @@ open class TimestampRulesFilter: LogitsFiltering {
         }
 
         // suppress <|notimestamps|> which is handled by `withoutTimestamps`
-        logits.fill(indexes: [[0, 0, specialTokens.noTimestampsToken as NSNumber]], with: -FloatType.infinity)
+        logits.fill(indexes: [[0, 0, specialTokens.noTimestampsToken as NSNumber]], with: FloatType.negativeInfinity)
 
         if tokens.count > sampleBegin {
             // timestamps have to appear in pairs, except directly before EOT; mask logits accordingly
@@ -92,10 +92,10 @@ open class TimestampRulesFilter: LogitsFiltering {
             if lastWasTimestamp {
                 if penultimateWasTimestamp {
                     // has to be non-timestamp
-                    logits.fillLastDimension(indexes: specialTokens.timeTokenBegin..<logits.count, with: -FloatType.infinity)
+                    logits.fillLastDimension(indexes: specialTokens.timeTokenBegin..<logits.count, with: FloatType.negativeInfinity)
                 } else {
                     // cannot be normal text tokens
-                    logits.fillLastDimension(indexes: 0..<specialTokens.endToken, with: -FloatType.infinity)
+                    logits.fillLastDimension(indexes: 0..<specialTokens.endToken, with: FloatType.negativeInfinity)
                 }
             }
 
@@ -109,7 +109,7 @@ open class TimestampRulesFilter: LogitsFiltering {
                     } else {
                         lastTimestamp + 1
                     }
-                logits.fillLastDimension(indexes: specialTokens.timeTokenBegin..<timestampLast, with: -FloatType.infinity)
+                logits.fillLastDimension(indexes: specialTokens.timeTokenBegin..<timestampLast, with: FloatType.negativeInfinity)
             }
         }
 
@@ -117,17 +117,17 @@ open class TimestampRulesFilter: LogitsFiltering {
         // Currently initial timestamp is forced to <|0.00|> every time
 //       if tokens.count == sampleBegin {
 //           // suppress generating non-timestamp tokens at the beginning
-//           logits.fillLastDimension(indexes: 0..<specialTokens.timeTokenBegin, with: -FloatType.infinity)
+//           logits.fillLastDimension(indexes: 0..<specialTokens.timeTokenBegin, with: FloatType.negativeInfinity)
 //           if let maxInitialTimestampIndex {
 //               // apply the `maxInitialTimestamp` option
 //               let lastAllowed = specialTokens.timeTokenBegin + maxInitialTimestampIndex + 1
-//               logits.fillLastDimension(indexes: lastAllowed..<logits.count, with: -FloatType.infinity)
+//               logits.fillLastDimension(indexes: lastAllowed..<logits.count, with: FloatType.negativeInfinity)
 //           }
 //       }
 
         // if sum of probability over timestamps is above any other token, sample timestamp
         if sumOfProbabilityOverTimestampsIsAboveAnyOtherToken(logits: logits, timeTokenBegin: specialTokens.timeTokenBegin) {
-            logits.fillLastDimension(indexes: 0..<specialTokens.timeTokenBegin, with: -FloatType.infinity)
+            logits.fillLastDimension(indexes: 0..<specialTokens.timeTokenBegin, with: FloatType.negativeInfinity)
         }
         return logits
     }
@@ -265,7 +265,7 @@ open class LanguageLogitsFilter: LogitsFiltering {
         guard tokens.count >= sampleBegin else {
             return logits
         }
-        logits.fill(indexes: nonLanguageTokenIndexes, with: -FloatType.infinity)
+        logits.fill(indexes: nonLanguageTokenIndexes, with: FloatType.negativeInfinity)
         return logits
     }
 
@@ -278,4 +278,13 @@ open class LanguageLogitsFilter: LogitsFiltering {
         }
         return indexes
     }
+}
+
+public extension UInt16 {
+    static let infinity: UInt16 = 0x7C00  // Float16 positive infinity
+    static let negativeInfinity: UInt16 = 0xFC00  // Float16 negative infinity
+}
+
+public extension Float16 {
+    static let negativeInfinity: Float16 = -Float16.infinity
 }

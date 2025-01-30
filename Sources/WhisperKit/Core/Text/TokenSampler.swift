@@ -16,13 +16,14 @@ public struct SamplingResult {
     public var completed: Bool
 }
 
+
 @available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
 open class GreedyTokenSampler: TokenSampling {
-    public var temperature: FloatType
+    public var temperature: Float
     public var eotToken: Int
     public var decodingOptions: DecodingOptions
 
-    public init(temperature: FloatType, eotToken: Int, decodingOptions: DecodingOptions) {
+    public init(temperature: Float, eotToken: Int, decodingOptions: DecodingOptions) {
         self.temperature = temperature
         self.eotToken = eotToken
         self.decodingOptions = decodingOptions
@@ -31,9 +32,31 @@ open class GreedyTokenSampler: TokenSampling {
     #if canImport(CoreML.MLState)
     @available(macOS 15, iOS 18, watchOS 11, visionOS 2, *)
     private func sampleWithMLTensor(logits: MLMultiArray) -> (token: Int, logprob: Float) {
-        // Use MLTensor operations if available for sampling
-        // Reference: https://github.com/huggingface/swift-transformers/blob/preview/Sources/Generation/Decoders.swift
-        var logitsTensor = MLTensor(MLShapedArray<FloatType>(logits)).cast(to: Float.self)
+        // Ensure the logits tensor is Float16-backed
+        guard logits.dataType == .float16 else {
+            fatalError("Expected MLMultiArray with Float16 data type")
+        }
+
+        let count = logits.count
+
+        // Step 1: Extract Float16 data (stored as UInt16)
+        let float16Pointer = logits.dataPointer.assumingMemoryBound(to: UInt16.self)
+        var float16Array = [UInt16](unsafeUninitializedCapacity: count) { buffer, initializedCount in
+            for i in 0..<count {
+                buffer[i] = float16Pointer[i]
+            }
+            initializedCount = count
+        }
+
+        // Step 2: Convert Float16 (UInt16) → Float32
+        var float32Array = [Float](repeating: 0, count: count)
+        var srcBuffer = vImage_Buffer(data: &float16Array, height: 1, width: vImagePixelCount(count), rowBytes: count * 2)
+        var destBuffer = vImage_Buffer(data: &float32Array, height: 1, width: vImagePixelCount(count), rowBytes: count * 4)
+
+        vImageConvert_Planar16FtoPlanarF(&srcBuffer, &destBuffer, 0)
+
+        // Step 3: Initialize MLTensor with Float32-converted values
+        var logitsTensor = MLTensor(MLShapedArray<Float>(scalars: float32Array, shape: logits.shape.map { $0.intValue }))
         var nextTokenTensor: MLTensor
         var nextLogprobTensor: MLTensor
 

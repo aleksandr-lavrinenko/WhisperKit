@@ -1326,20 +1326,20 @@ final class UnitTests: XCTestCase {
 
     func testFillIndexesWithValue() throws {
         let logits = try MLMultiArray.logits([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
-        logits.fill(indexes: [] as [[NSNumber]], with: -FloatType.infinity)
+        logits.fill(indexes: [] as [[NSNumber]], with: FloatType.negativeInfinity)
         XCTAssertEqual(logits.data(for: 2), [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
 
         let logits2 = try MLMultiArray.logits([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
         let indexes2: [[NSNumber]] = [[0, 0, 0], [0, 0, 1], [0, 0, 5]]
-        logits2.fill(indexes: indexes2, with: -FloatType.infinity)
+        logits2.fill(indexes: indexes2, with: FloatType.negativeInfinity)
         XCTAssertEqual(logits2.data(for: 2), [-.infinity, -.infinity, 0.3, 0.4, 0.5, -.infinity, 0.7])
 
         let logits3 = try MLMultiArray.logits([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
-        logits3.fillLastDimension(indexes: 0..<1, with: -FloatType.infinity)
+        logits3.fillLastDimension(indexes: 0..<1, with: FloatType.negativeInfinity)
         XCTAssertEqual(logits3.data(for: 2), [-.infinity, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
 
         let logits4 = try MLMultiArray.logits([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
-        logits4.fillLastDimension(indexes: 2..<5, with: -FloatType.infinity)
+        logits4.fillLastDimension(indexes: 2..<5, with: FloatType.negativeInfinity)
         XCTAssertEqual(logits4.data(for: 2), [0.1, 0.2, -.infinity, -.infinity, -.infinity, 0.6, 0.7])
     }
 

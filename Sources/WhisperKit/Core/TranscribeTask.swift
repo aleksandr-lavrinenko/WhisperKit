@@ -265,11 +265,12 @@ final class TranscribeTask {
             decodingOptions options: DecodingOptions,
             callback: TranscriptionCallback = nil
         ) async throws -> DecodingResult {
+            
             let interval = Logging.beginSignpost("Decode", signposter: Logging.TranscribeTask.signposter)
             defer { Logging.endSignpost("Decode", interval: interval, signposter: Logging.TranscribeTask.signposter) }
 
             // Fallback `options.temperatureFallbackCount` times with increasing temperatures, starting at `options.temperature`
-            let temperatures = (0...options.temperatureFallbackCount).map { FloatType(options.temperature) + FloatType($0) * FloatType(options.temperatureIncrementOnFallback) }
+            let temperatures = (0...options.temperatureFallbackCount).map { Float(options.temperature) + Float($0) * Float(options.temperatureIncrementOnFallback) }
 
             Logging.debug("Decoding with temperatures \(temperatures)")
 

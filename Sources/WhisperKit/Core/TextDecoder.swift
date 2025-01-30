@@ -11,6 +11,19 @@ public protocol TextDecoderOutputType {}
 extension MLMultiArray: TextDecoderTensorType {}
 extension MLMultiArray: TextDecoderInputType {}
 
+func float32ToFloat16BitPattern(_ value: Float) -> UInt16 {
+    var f32 = value
+    var f16: UInt16 = 0
+    withUnsafeMutablePointer(to: &f32) { f32Ptr in
+        withUnsafeMutablePointer(to: &f16) { f16Ptr in
+            var src = vImage_Buffer(data: f32Ptr, height: 1, width: 1, rowBytes: 4)
+            var dest = vImage_Buffer(data: f16Ptr, height: 1, width: 1, rowBytes: 2)
+            vImageConvert_PlanarFtoPlanar16F(&src, &dest, 0)
+        }
+    }
+    return f16
+}
+
 public struct TextDecoderMLMultiArrayInputType: TextDecoderInputType {
     public var inputIds: MLMultiArray
     public var cacheLength: MLMultiArray
@@ -93,7 +106,7 @@ public protocol TextDecoding {
         using decoderInputs: DecodingInputs,
         sampler tokenSampler: TokenSampling,
         options: DecodingOptions,
-        temperature: FloatType
+        temperature: Float
     ) async throws -> DecodingResult
 
     @available(*, deprecated, message: "Subject to removal in a future version. Use `detectLanguage(from:using:sampler:options:temperature:) async throws -> DecodingResult` instead.")
@@ -103,7 +116,7 @@ public protocol TextDecoding {
         using decoderInputs: DecodingInputs,
         sampler tokenSampler: TokenSampling,
         options: DecodingOptions,
-        temperature: FloatType
+        temperature: Float
     ) async throws -> [DecodingResult]
 
     static func updateKVCache(
@@ -141,7 +154,7 @@ public extension TextDecoding {
         using decoderInputs: DecodingInputs,
         sampler tokenSampler: TokenSampling,
         options: DecodingOptions,
-        temperature: FloatType
+        temperature: Float
     ) async throws -> [DecodingResult] {
         let result: DecodingResult = try await detectLanguage(
             from: encoderOutput,
@@ -187,7 +200,7 @@ public extension TextDecoding {
         let valueCache = initMLMultiArray(shape: [1, kvCacheEmbedDimValue, 1, kvCacheMaxSequenceLengthValue], dataType: .float16, initialValue: FloatType(0))
         let alignmentWeights = initMLMultiArray(shape: [kvCacheMaxSequenceLengthValue, encoderOutputDimValue], dataType: .float16, initialValue: FloatType(0))
         let kvCacheUpdateMask = initMLMultiArray(shape: [1, kvCacheMaxSequenceLengthValue], dataType: .int32, initialValue: Int32(0))
-        let decoderKeyPaddingMask = initMLMultiArray(shape: [1, kvCacheMaxSequenceLengthValue], dataType: .float16, initialValue: FloatType(-10000))
+        let decoderKeyPaddingMask = initMLMultiArray(shape: [1, kvCacheMaxSequenceLengthValue], dataType: .float16, initialValue: float32ToFloat16BitPattern(-10000))
         let prefillKeyCache = try! MLMultiArray(shape: [1, kvCacheEmbedDimValue, 1, kvCacheMaxSequenceLengthValue], dataType: .float16)
         let prefillValueCache = try! MLMultiArray(shape: [1, kvCacheEmbedDimValue, 1, kvCacheMaxSequenceLengthValue], dataType: .float16)
 
@@ -508,7 +521,7 @@ open class TextDecoder: TextDecoding, WhisperMLModel {
         using decoderInputs: DecodingInputs,
         sampler tokenSampler: TokenSampling,
         options: DecodingOptions,
-        temperature: FloatType
+        temperature: Float
     ) async throws -> DecodingResult {
         // Predict logits for 1 iteration with sot
         // 1. LanguageLogitsFilter for only language tokens
