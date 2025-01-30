@@ -11,13 +11,14 @@ import Tokenizers
 #if !((os(macOS) || targetEnvironment(macCatalyst)) && arch(x86_64))
 public typealias FloatType = UInt16
 #else
-public typealias FloatType = Float
+public typealias FloatType = UInt16
 #endif
 
 #if (os(macOS) || targetEnvironment(macCatalyst)) && arch(arm64) && compiler(<6)
 extension Float16: BNNSScalar {}
 extension Float16: MLShapedArrayScalar {}
 #endif
+
 
 // MARK: - CoreML
 
