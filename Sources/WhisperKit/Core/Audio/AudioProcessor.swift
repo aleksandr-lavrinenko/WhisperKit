@@ -671,7 +671,7 @@ public class AudioProcessor: NSObject, AudioProcessing {
     let startPointer = channelData[0]
 
     var result: [Float] = []
-    result.reserveCapacity(frameLength)  // Reserve the capacity to avoid multiple allocations
+    result.reserveCapacity(frameLength)
 
     var currentFrame = 0
     while currentFrame < frameLength {
@@ -681,22 +681,13 @@ public class AudioProcessor: NSObject, AudioProcessing {
       var chunk = [Float](repeating: 0, count: currentChunkSize)
 
       chunk.withUnsafeMutableBufferPointer { bufferPointer in
-        vDSP_mmov(
-          startPointer.advanced(by: currentFrame),
-          bufferPointer.baseAddress!,
-          vDSP_Length(currentChunkSize),
-          1,
-          vDSP_Length(currentChunkSize),
-          1
-        )
+        memcpy(
+          bufferPointer.baseAddress!, startPointer.advanced(by: currentFrame),
+          currentChunkSize * MemoryLayout<Float>.size)
       }
 
       result.append(contentsOf: chunk)
       currentFrame += currentChunkSize
-
-      memset(
-        startPointer.advanced(by: currentFrame - currentChunkSize), 0,
-        currentChunkSize * MemoryLayout<Float>.size)
     }
 
     return result
