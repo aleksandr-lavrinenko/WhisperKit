@@ -359,7 +359,7 @@ open class WhisperKit {
             Logging.debug("Loading feature extractor")
             try await featureExtractor.loadModel(
                 at: logmelUrl,
-                computeUnits: modelCompute.melCompute, // hardcoded to use GPU
+                computeUnits: .cpuOnly, // hardcoded to use GPU
                 prewarmMode: prewarmMode
             )
             Logging.debug("Loaded feature extractor")

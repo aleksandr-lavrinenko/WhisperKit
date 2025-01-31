@@ -118,7 +118,7 @@ open class FeatureExtractor: FeatureExtracting, WhisperMLModel {
         return false
     }
     
-    func clipSmallValues(array: MLMultiArray, minValue: Float = 2e-4) {
+    func clipSmallValues(array: MLMultiArray, minValue: Float = 1e-5) {
         let ptr = array.dataPointer.assumingMemoryBound(to: Float.self)
         for i in 0..<array.count {
             if ptr[i] < minValue || abs(ptr[i]) == 0.0 {

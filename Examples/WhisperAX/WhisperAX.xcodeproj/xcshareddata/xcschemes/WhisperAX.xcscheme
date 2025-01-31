@@ -73,6 +73,12 @@
             ReferencedContainer = "container:WhisperAX.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
+      <CommandLineArguments>
+         <CommandLineArgument
+            argument = "-x86_64"
+            isEnabled = "YES">
+         </CommandLineArgument>
+      </CommandLineArguments>
       <EnvironmentVariables>
          <EnvironmentVariable
             key = "MODEL_NAME"

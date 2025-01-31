@@ -127,7 +127,8 @@ extension AudioProcessing {
 
         for i in 0..<actualFrameLength {
           let value = sourcePointer[startIndex + i]
-          destPointer[i] = (abs(value) == 0.0) ? (value == -0.0 ? -0.00432 : 0.00432) : value  // ✅ Replace -0.0 with 0.00004
+          destPointer[i] = value
+            // (abs(value) == 0.0) ? (value == -0.0 ? -0.00432 : 0.00432) : value  // ✅ Replace -0.0 with 0.00004
         }
       }
     }
