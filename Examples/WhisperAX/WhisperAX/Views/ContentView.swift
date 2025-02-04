@@ -1253,7 +1253,7 @@ struct ContentView: View {
                 }
                 #endif
 
-                try? audioProcessor.startRecordingLive(inputDeviceID: deviceId) { _ in
+                try? audioProcessor.startRecordingLive(inputDeviceID: deviceId, noiseGate: false) { _ in
                     DispatchQueue.main.async {
                         bufferEnergy = whisperKit?.audioProcessor.relativeEnergy ?? []
                         bufferSeconds = Double(whisperKit?.audioProcessor.audioSamples.count ?? 0) / Double(WhisperKit.sampleRate)

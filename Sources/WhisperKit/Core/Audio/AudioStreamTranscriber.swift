@@ -79,7 +79,7 @@ public actor AudioStreamTranscriber {
             return
         }
         state.isRecording = true
-        try audioProcessor.startRecordingLive { [weak self] _ in
+        try audioProcessor.startRecordingLive(inputDeviceID: nil, noiseGate: false) { [weak self] _ in
             Task { [weak self] in
                 await self?.onAudioBufferCallback()
             }
