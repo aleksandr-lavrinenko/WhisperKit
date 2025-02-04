@@ -94,11 +94,11 @@ extension AudioProcessing {
     }.value
   }
 
-//  public func startRecordingLive(
-//    inputDeviceID: DeviceID? = nil, noiseGate: Bool = false, callback: (([Float]) -> Void)?
-//  ) throws {
-//    try _startRecordingLive(inputDeviceID: inputDeviceID, callback: callback)
-//  }
+  //  public func startRecordingLive(
+  //    inputDeviceID: DeviceID? = nil, noiseGate: Bool = false, callback: (([Float]) -> Void)?
+  //  ) throws {
+  //    try _startRecordingLive(inputDeviceID: inputDeviceID, callback: callback)
+  //  }
 
   public func resumeRecordingLive(inputDeviceID: DeviceID? = nil, callback: (([Float]) -> Void)?)
     throws
@@ -197,9 +197,9 @@ extension AudioProcessing {
 @available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
 public class AudioProcessor: NSObject, AudioProcessing {
   private var audioUnit: AudioUnit?
-    private let kInputBus: UInt32 = 1
-    
-    private let kOutputBus: UInt32 = 0
+  private let kInputBus: UInt32 = 1
+
+  private let kOutputBus: UInt32 = 0
   private var lastInputDevice: DeviceID?
   private var currentTap: ProcessTapProtocol?
   private let processingQueue = DispatchQueue(
@@ -229,39 +229,49 @@ public class AudioProcessor: NSObject, AudioProcessing {
   public var audioBufferCallback: (([Float]) -> Void)?
   public var minBufferLength = Int(Double(WhisperKit.sampleRate) * 0.1)  // 0.1 second of audio at 16,000 Hz
 
-    /// Audio callback function that processes audio input
-    private let audioRenderCallback: AURenderCallback = { inRefCon, ioActionFlags, inTimeStamp, inBusNumber, inNumberFrames, ioData in
-        let audioUnitRecorder = Unmanaged<AudioProcessor>.fromOpaque(inRefCon).takeUnretainedValue()
-        audioUnitRecorder.processAudio(ioActionFlags: ioActionFlags, inTimeStamp: inTimeStamp, bus: inBusNumber, numFrames: inNumberFrames, ioData: ioData)
-        return noErr
+  /// Audio callback function that processes audio input
+  private let audioRenderCallback: AURenderCallback = {
+    inRefCon, ioActionFlags, inTimeStamp, inBusNumber, inNumberFrames, ioData in
+    let audioUnitRecorder = Unmanaged<AudioProcessor>.fromOpaque(inRefCon).takeUnretainedValue()
+    audioUnitRecorder.processAudio(
+      ioActionFlags: ioActionFlags, inTimeStamp: inTimeStamp, bus: inBusNumber,
+      numFrames: inNumberFrames, ioData: ioData)
+    return noErr
+  }
+
+  private func processAudio(
+    ioActionFlags: UnsafeMutablePointer<AudioUnitRenderActionFlags>,
+    inTimeStamp: UnsafePointer<AudioTimeStamp>, bus: UInt32, numFrames: UInt32,
+    ioData: UnsafeMutablePointer<AudioBufferList>?
+  ) {
+    guard let audioUnit = audioUnit else { return }
+    if bus == kInputBus {
+
+      let frameSize = minBufferLength * 4  // 4 bytes per Float32 sample
+      let bufferMemory = UnsafeMutableRawPointer.allocate(
+        byteCount: Int(frameSize), alignment: MemoryLayout<Float>.alignment)
+
+      var inputBufferList = AudioBufferList(
+        mNumberBuffers: 1,
+        mBuffers: AudioBuffer(
+          mNumberChannels: 1, mDataByteSize: UInt32(frameSize), mData: bufferMemory)
+      )
+
+      let status = AudioUnitRender(
+        audioUnit, ioActionFlags, inTimeStamp, bus, numFrames, &inputBufferList)
+      if status != noErr {
+        print("Error rendering audio: \(status)")
+        return
+      }
+
+      // Convert buffer to Float array
+      let bufferPointer = inputBufferList.mBuffers.mData?.assumingMemoryBound(to: Float.self)
+      let samples = Array(UnsafeBufferPointer(start: bufferPointer, count: Int(numFrames)))
+
+      // Send to callback
+      self.processBuffer(samples)
     }
-    
-    private func processAudio(ioActionFlags: UnsafeMutablePointer<AudioUnitRenderActionFlags>, inTimeStamp: UnsafePointer<AudioTimeStamp>, bus: UInt32, numFrames: UInt32, ioData: UnsafeMutablePointer<AudioBufferList>?) {
-        guard let audioUnit = audioUnit else { return }
-        if bus == kInputBus {
-            
-            let frameSize = minBufferLength * 4  // 4 bytes per Float32 sample
-            let bufferMemory = UnsafeMutableRawPointer.allocate(byteCount: Int(frameSize), alignment: MemoryLayout<Float>.alignment)
-            
-            var inputBufferList = AudioBufferList(
-                mNumberBuffers: 1,
-                mBuffers: AudioBuffer(mNumberChannels: 1, mDataByteSize: UInt32(frameSize), mData: bufferMemory)
-            )
-            
-            let status = AudioUnitRender(audioUnit, ioActionFlags, inTimeStamp, bus, numFrames, &inputBufferList)
-            if status != noErr {
-                print("Error rendering audio: \(status)")
-                return
-            }
-            
-            // Convert buffer to Float array
-            let bufferPointer = inputBufferList.mBuffers.mData?.assumingMemoryBound(to: Float.self)
-            let samples = Array(UnsafeBufferPointer(start: bufferPointer, count: Int(numFrames)))
-            
-            // Send to callback
-            self.processBuffer(samples)
-        }
-    }
+  }
   // MARK: - Loading and conversion
 
   public static func loadAudio(
@@ -939,118 +949,134 @@ extension AudioProcessor {
     #endif
   }
 
-    /// Starts live recording with an optional callback to process audio samples.
-    public func startRecordingLive(inputDeviceID: DeviceID? = nil, noiseGate: Bool = false, callback: (([Float]) -> Void)? = nil) throws {
-        if audioUnit == nil {
-            try! setupAudioUnit(noiseGate: noiseGate)
-        }
-        audioBufferCallback = callback
-        try startAudioUnit()
+  /// Starts live recording with an optional callback to process audio samples.
+  public func startRecordingLive(
+    inputDeviceID: DeviceID? = nil, noiseGate: Bool = false, callback: (([Float]) -> Void)? = nil
+  ) throws {
+    if audioUnit == nil {
+      try! setupAudioUnit(noiseGate: noiseGate)
     }
-    
-    private func setupAudioUnit(noiseGate: Bool) throws {
-        var status: OSStatus
+    audioBufferCallback = callback
+    try startAudioUnit()
+  }
 
-        
-        let audioUnitType: UInt32 = noiseGate ? kAudioUnitSubType_VoiceProcessingIO : kAudioUnitSubType_HALOutput
-        // 🔹 Describe the Audio Component
-        var desc = AudioComponentDescription(
-            componentType: kAudioUnitType_Output,
-            componentSubType: audioUnitType,  // ✅ Enables echo cancellation
-            componentManufacturer: kAudioUnitManufacturer_Apple,
-            componentFlags: 0,
-            componentFlagsMask: 0
-        )
+  private func setupAudioUnit(noiseGate: Bool) throws {
+    var status: OSStatus
 
-        // 🔹 Find and create the AudioUnit instance
-        guard let component = AudioComponentFindNext(nil, &desc) else {
-            throw NSError(domain: "AudioUnitRecorder", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to find AudioComponent"])
-        }
+    let audioUnitType: UInt32 =
+      noiseGate ? kAudioUnitSubType_VoiceProcessingIO : kAudioUnitSubType_HALOutput
+    // 🔹 Describe the Audio Component
+    var desc = AudioComponentDescription(
+      componentType: kAudioUnitType_Output,
+      componentSubType: audioUnitType,  // ✅ Enables echo cancellation
+      componentManufacturer: kAudioUnitManufacturer_Apple,
+      componentFlags: 0,
+      componentFlagsMask: 0
+    )
 
-        status = AudioComponentInstanceNew(component, &audioUnit)
-        guard status == noErr, let audioUnit = audioUnit else {
-            throw NSError(domain: "AudioUnitRecorder", code: Int(status), userInfo: [NSLocalizedDescriptionKey: "Failed to create AudioUnit"])
-        }
-        
-        // 🔹 Enable input & output
-        // 🔹 Enable input & output
-        var enable: UInt32 = 1
-        status = AudioUnitSetProperty(audioUnit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Input, kInputBus, &enable, UInt32(MemoryLayout.size(ofValue: enable)))
-        checkStatus(status, message: "Error enabling input")
-
-        
-        // 🔹 Set audio format
-        var audioFormat = AudioStreamBasicDescription(
-            mSampleRate: 16000,  // ✅ Set desired sample rate
-            mFormatID: kAudioFormatLinearPCM,
-            mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked | kAudioFormatFlagsNativeEndian,
-            mBytesPerPacket: 4,
-            mFramesPerPacket: 1,
-            mBytesPerFrame: 4,
-            mChannelsPerFrame: 1,
-            mBitsPerChannel: 32,
-            mReserved: 0
-        )
-        
-        status = AudioUnitSetProperty(audioUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, kInputBus, &audioFormat, UInt32(MemoryLayout<AudioStreamBasicDescription>.size))
-        checkStatus(status, message: "Error setting input format")
-        
-        status = AudioUnitSetProperty(audioUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, kOutputBus, &audioFormat, UInt32(MemoryLayout<AudioStreamBasicDescription>.size))
-        checkStatus(status, message: "Error setting output format")
-
-        // 🔹 Set input callback
-        var callbackStruct = AURenderCallbackStruct(
-            inputProc: audioRenderCallback,
-            inputProcRefCon: Unmanaged.passUnretained(self).toOpaque()
-        )
-        
-        if noiseGate {
-            
-            status = AudioUnitSetProperty(audioUnit, kAudioOutputUnitProperty_SetInputCallback, kAudioUnitScope_Global, kInputBus, &callbackStruct, UInt32(MemoryLayout.size(ofValue: callbackStruct)))
-            checkStatus(status, message: "Error setting input callback")
-            
-            var configuration = AUVoiceIOOtherAudioDuckingConfiguration(mEnableAdvancedDucking: false, mDuckingLevel: .min)
-            
-            status = AudioUnitSetProperty(audioUnit,
-                                          kAUVoiceIOProperty_OtherAudioDuckingConfiguration,
-                                          kAudioUnitScope_Global,
-                                          0,
-                                          &configuration,
-                                          UInt32(MemoryLayout.size(ofValue: configuration)))
-            
-            if status != noErr {
-                print("Error setting ducking level: \(status)")
-            }
-        }
-        
-        // 🔹 Initialize and start
-        status = AudioUnitInitialize(audioUnit)
-        checkStatus(status, message: "Error initializing AudioUnit")
+    // 🔹 Find and create the AudioUnit instance
+    guard let component = AudioComponentFindNext(nil, &desc) else {
+      throw NSError(
+        domain: "AudioUnitRecorder", code: -1,
+        userInfo: [NSLocalizedDescriptionKey: "Failed to find AudioComponent"])
     }
-    
-    /// Starts the AudioUnit for live recording
-    private func startAudioUnit() throws {
-        guard let audioUnit = audioUnit else { return }
-        
-        let status = AudioOutputUnitStart(audioUnit)
-        checkStatus(status, message: "Error starting AudioUnit")
+
+    status = AudioComponentInstanceNew(component, &audioUnit)
+    guard status == noErr, let audioUnit = audioUnit else {
+      throw NSError(
+        domain: "AudioUnitRecorder", code: Int(status),
+        userInfo: [NSLocalizedDescriptionKey: "Failed to create AudioUnit"])
     }
-    
-    /// Stops and cleans up the AudioUnit
-    private func teardownAudioUnit() {
-        guard let audioUnit = audioUnit else { return }
-        AudioOutputUnitStop(audioUnit)
-        AudioUnitUninitialize(audioUnit)
-        AudioComponentInstanceDispose(audioUnit)
-        self.audioUnit = nil
+
+    // 🔹 Enable input & output
+    // 🔹 Enable input & output
+    var enable: UInt32 = 1
+    status = AudioUnitSetProperty(
+      audioUnit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Input, kInputBus, &enable,
+      UInt32(MemoryLayout.size(ofValue: enable)))
+    checkStatus(status, message: "Error enabling input")
+
+    // 🔹 Set audio format
+    var audioFormat = AudioStreamBasicDescription(
+      mSampleRate: 16000,  // ✅ Set desired sample rate
+      mFormatID: kAudioFormatLinearPCM,
+      mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked
+        | kAudioFormatFlagsNativeEndian,
+      mBytesPerPacket: 4,
+      mFramesPerPacket: 1,
+      mBytesPerFrame: 4,
+      mChannelsPerFrame: 1,
+      mBitsPerChannel: 32,
+      mReserved: 0
+    )
+
+    status = AudioUnitSetProperty(
+      audioUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, kInputBus, &audioFormat,
+      UInt32(MemoryLayout<AudioStreamBasicDescription>.size))
+    checkStatus(status, message: "Error setting input format")
+
+    status = AudioUnitSetProperty(
+      audioUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, kOutputBus, &audioFormat,
+      UInt32(MemoryLayout<AudioStreamBasicDescription>.size))
+    checkStatus(status, message: "Error setting output format")
+
+    // 🔹 Set input callback
+    var callbackStruct = AURenderCallbackStruct(
+      inputProc: audioRenderCallback,
+      inputProcRefCon: Unmanaged.passUnretained(self).toOpaque()
+    )
+
+    if noiseGate {
+
+      status = AudioUnitSetProperty(
+        audioUnit, kAudioOutputUnitProperty_SetInputCallback, kAudioUnitScope_Global, kInputBus,
+        &callbackStruct, UInt32(MemoryLayout.size(ofValue: callbackStruct)))
+      checkStatus(status, message: "Error setting input callback")
+
+      var configuration = AUVoiceIOOtherAudioDuckingConfiguration(
+        mEnableAdvancedDucking: false, mDuckingLevel: .min)
+
+      status = AudioUnitSetProperty(
+        audioUnit,
+        kAUVoiceIOProperty_OtherAudioDuckingConfiguration,
+        kAudioUnitScope_Global,
+        0,
+        &configuration,
+        UInt32(MemoryLayout.size(ofValue: configuration)))
+
+      if status != noErr {
+        print("Error setting ducking level: \(status)")
+      }
     }
-    
-    /// Logs errors from OSStatus
-    private func checkStatus(_ status: OSStatus, message: String) {
-        if status != noErr {
-            print("\(message): OSStatus = \(status)")
-        }
+
+    // 🔹 Initialize and start
+    status = AudioUnitInitialize(audioUnit)
+    checkStatus(status, message: "Error initializing AudioUnit")
+  }
+
+  /// Starts the AudioUnit for live recording
+  private func startAudioUnit() throws {
+    guard let audioUnit = audioUnit else { return }
+
+    let status = AudioOutputUnitStart(audioUnit)
+    checkStatus(status, message: "Error starting AudioUnit")
+  }
+
+  /// Stops and cleans up the AudioUnit
+  private func teardownAudioUnit() {
+    guard let audioUnit = audioUnit else { return }
+    AudioOutputUnitStop(audioUnit)
+    AudioUnitUninitialize(audioUnit)
+    AudioComponentInstanceDispose(audioUnit)
+    self.audioUnit = nil
+  }
+
+  /// Logs errors from OSStatus
+  private func checkStatus(_ status: OSStatus, message: String) {
+    if status != noErr {
+      print("\(message): OSStatus = \(status)")
     }
+  }
 
   public func purgeAudioSamples(keepingLast keep: Int) {
     audioQueue.sync(flags: .barrier) {
@@ -1085,40 +1111,40 @@ extension AudioProcessor {
     }
   }
 
-//  public func startRecordingLive(
-//    inputDeviceID: DeviceID? = nil, noiseGate: Bool = false, callback: (([Float]) -> Void)? = nil
-//  ) throws {
-//    audioQueue.sync {
-//      _audioSamples = []
-//      _audioSamples.reserveCapacity(30 * WhisperKit.sampleRate)
-//    }
-//    audioEnergy = []
-//
-//    try? setupAudioSessionForDevice()
-//
-//    audioEngine = try setupEngine(inputDeviceID: inputDeviceID, noiseGate: noiseGate)
-//
-//    // Set the callback
-//    audioBufferCallback = callback
-//
-//    lastInputDevice = inputDeviceID
-//  }
+  //  public func startRecordingLive(
+  //    inputDeviceID: DeviceID? = nil, noiseGate: Bool = false, callback: (([Float]) -> Void)? = nil
+  //  ) throws {
+  //    audioQueue.sync {
+  //      _audioSamples = []
+  //      _audioSamples.reserveCapacity(30 * WhisperKit.sampleRate)
+  //    }
+  //    audioEnergy = []
+  //
+  //    try? setupAudioSessionForDevice()
+  //
+  //    audioEngine = try setupEngine(inputDeviceID: inputDeviceID, noiseGate: noiseGate)
+  //
+  //    // Set the callback
+  //    audioBufferCallback = callback
+  //
+  //    lastInputDevice = inputDeviceID
+  //  }
 
   public func resumeRecordingLive(
     inputDeviceID: DeviceID? = nil, callback: (([Float]) -> Void)? = nil
   ) throws {
-//    try? setupAudioSessionForDevice()
-//
-//    if inputDeviceID == lastInputDevice {
-//      try audioEngine?.start()
-//    } else {
-//      audioEngine = try setupEngine(inputDeviceID: inputDeviceID)
-//    }
-//
-//    // Set the callback only if the provided callback is not nil
-//    if let callback = callback {
-//      audioBufferCallback = callback
-//    }
+    //    try? setupAudioSessionForDevice()
+    //
+    //    if inputDeviceID == lastInputDevice {
+    //      try audioEngine?.start()
+    //    } else {
+    //      audioEngine = try setupEngine(inputDeviceID: inputDeviceID)
+    //    }
+    //
+    //    // Set the callback only if the provided callback is not nil
+    //    if let callback = callback {
+    //      audioBufferCallback = callback
+    //    }
   }
 
   public func pauseRecording() {
@@ -1134,6 +1160,8 @@ extension AudioProcessor {
     // Stop the audio engine
     audioEngine?.stop()
     audioEngine = nil
+
+    teardownAudioUnit()
   }
 }
 
