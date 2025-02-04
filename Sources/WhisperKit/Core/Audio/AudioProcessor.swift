@@ -954,13 +954,13 @@ extension AudioProcessor {
     inputDeviceID: DeviceID? = nil, noiseGate: Bool = false, callback: (([Float]) -> Void)? = nil
   ) throws {
     if audioUnit == nil {
-      try! setupAudioUnit(noiseGate: noiseGate)
+        try! setupAudioUnit(noiseGate: noiseGate, inputDeviceID: inputDeviceID)
     }
     audioBufferCallback = callback
     try startAudioUnit()
   }
 
-  private func setupAudioUnit(noiseGate: Bool) throws {
+    private func setupAudioUnit(noiseGate: Bool, inputDeviceID: DeviceID?) throws {
     var status: OSStatus
 
     let audioUnitType: UInt32 =
@@ -1025,10 +1025,34 @@ extension AudioProcessor {
       inputProc: audioRenderCallback,
       inputProcRefCon: Unmanaged.passUnretained(self).toOpaque()
     )
-
-    status = AudioUnitSetProperty(
-      audioUnit, kAudioOutputUnitProperty_SetInputCallback, kAudioUnitScope_Global, kInputBus,
-      &callbackStruct, UInt32(MemoryLayout.size(ofValue: callbackStruct)))
+      
+      if noiseGate {
+          
+          status = AudioUnitSetProperty(
+            audioUnit, kAudioOutputUnitProperty_SetInputCallback, kAudioUnitScope_Global, kInputBus,
+            &callbackStruct, UInt32(MemoryLayout.size(ofValue: callbackStruct)))
+          
+      } else {
+          status = AudioUnitSetProperty(
+              audioUnit,
+              kAudioUnitProperty_SetRenderCallback,
+              kAudioUnitScope_Global,
+              kInputBus,
+              &callbackStruct,
+              UInt32(MemoryLayout.size(ofValue: callbackStruct))
+          )
+          
+          checkStatus(status, message: "Error setting input callback")
+          var deviceID = inputDeviceID!
+          AudioUnitSetProperty(
+                      audioUnit,
+                      kAudioOutputUnitProperty_CurrentDevice,
+                      kAudioUnitScope_Global,
+                      kInputBus,  // 🔹 Assign to input
+                      &deviceID,
+                      UInt32(MemoryLayout<AudioDeviceID>.size)
+                  )
+      }
     checkStatus(status, message: "Error setting input callback")
 
     if noiseGate {
