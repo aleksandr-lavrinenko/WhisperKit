@@ -1026,12 +1026,12 @@ extension AudioProcessor {
       inputProcRefCon: Unmanaged.passUnretained(self).toOpaque()
     )
 
-    if noiseGate {
+    status = AudioUnitSetProperty(
+      audioUnit, kAudioOutputUnitProperty_SetInputCallback, kAudioUnitScope_Global, kInputBus,
+      &callbackStruct, UInt32(MemoryLayout.size(ofValue: callbackStruct)))
+    checkStatus(status, message: "Error setting input callback")
 
-      status = AudioUnitSetProperty(
-        audioUnit, kAudioOutputUnitProperty_SetInputCallback, kAudioUnitScope_Global, kInputBus,
-        &callbackStruct, UInt32(MemoryLayout.size(ofValue: callbackStruct)))
-      checkStatus(status, message: "Error setting input callback")
+    if noiseGate {
 
       var configuration = AUVoiceIOOtherAudioDuckingConfiguration(
         mEnableAdvancedDucking: false, mDuckingLevel: .min)
