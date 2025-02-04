@@ -909,8 +909,6 @@ extension AudioProcessor {
     let inputNode = audioEngine.inputNode
     try! inputNode.setVoiceProcessingEnabled(true)
 
-    print("Voice processing enabled: \(inputNode.voiceProcessingEnabled)")
-
     #if os(macOS)
       if let inputDeviceID = inputDeviceID {
         assignAudioInput(inputNode: inputNode, inputDeviceID: inputDeviceID)
