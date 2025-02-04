@@ -918,13 +918,15 @@ extension AudioProcessor {
     let hardwareSampleRate = audioEngine.inputNode.inputFormat(forBus: 0).sampleRate
     let inputFormat = inputNode.outputFormat(forBus: 0)
 
-    guard
-      let nodeFormat = AVAudioFormat(
-        commonFormat: inputFormat.commonFormat, sampleRate: hardwareSampleRate,
-        channels: inputFormat.channelCount, interleaved: inputFormat.isInterleaved)
-    else {
-      throw WhisperError.audioProcessingFailed("Failed to create node format")
-    }
+    let nodeFormat = inputFormat
+
+    // guard
+    //   let nodeFormat = AVAudioFormat(
+    //     commonFormat: inputFormat.commonFormat, sampleRate: hardwareSampleRate,
+    //     channels: inputFormat.channelCount, interleaved: inputFormat.isInterleaved)
+    // else {
+    //   throw WhisperError.audioProcessingFailed("Failed to create node format")
+    // }
 
     // Desired format (16,000 Hz, 1 channel)
     guard
