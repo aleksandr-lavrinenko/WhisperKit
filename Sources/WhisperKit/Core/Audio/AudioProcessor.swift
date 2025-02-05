@@ -200,6 +200,7 @@ public class AudioProcessor: NSObject, AudioProcessing {
   private let kInputBus: UInt32 = 1
 
   private let kOutputBus: UInt32 = 0
+    var lastTimestamp: CFAbsoluteTime = 0
   private var lastInputDevice: DeviceID?
   private var currentTap: ProcessTapProtocol?
   private let processingQueue = DispatchQueue(
@@ -238,6 +239,37 @@ public class AudioProcessor: NSObject, AudioProcessing {
       numFrames: inNumberFrames, ioData: ioData)
     return noErr
   }
+    
+    var lastSampleTime: Float64 = 0
+
+    let standardSampleRates: [Float64] = [8000, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 176400]
+    
+    let numbersOfFramesToStabilizeFrameRate = 3
+    
+    var numberOfFramesPassed = 0
+
+    func calculateSampleRate(inputTimeStamp: UnsafePointer<AudioTimeStamp>) -> Float64? {
+        guard inputTimeStamp.pointee.mSampleTime > lastSampleTime else { return nil }
+
+        let sampleTimeDelta = inputTimeStamp.pointee.mSampleTime - lastSampleTime
+        let timeDelta = Double(inputTimeStamp.pointee.mHostTime) - lastTimestamp
+
+        lastSampleTime = inputTimeStamp.pointee.mSampleTime
+        lastTimestamp = Double(inputTimeStamp.pointee.mHostTime)
+
+        guard timeDelta > 0 else { return nil } // Avoid division by zero
+
+        let estimatedSampleRate = sampleTimeDelta / (Double(timeDelta) / Double(NSEC_PER_SEC))
+        
+        print("Estimated sample rate: \(estimatedSampleRate)")
+
+        // Round to the closest standard sample rate
+        let closestSampleRate = standardSampleRates.min(by: { abs($0 - estimatedSampleRate) < abs($1 - estimatedSampleRate) }) ?? estimatedSampleRate
+        
+        print("Closest sample rate: \(closestSampleRate)")
+
+        return closestSampleRate
+    }
 
   private func processAudio(
     ioActionFlags: UnsafeMutablePointer<AudioUnitRenderActionFlags>,
@@ -870,6 +902,7 @@ public class AudioProcessor: NSObject, AudioProcessing {
   deinit {
     stopRecording()
   }
+
 }
 
 // MARK: - Streaming
@@ -1186,7 +1219,10 @@ extension AudioProcessor {
     audioEngine = nil
 
     teardownAudioUnit()
+      
+    numberOfFramesPassed = 0
   }
+    
 }
 
 public protocol ProcessTapProtocol {
@@ -1247,7 +1283,7 @@ extension AudioProcessor {
       throw WhisperError.audioProcessingFailed("Tap stream description not available.")
     }
 
-    guard let nodeFormat = AVAudioFormat(streamDescription: &streamDescription) else {
+    guard var nodeFormat = AVAudioFormat(streamDescription: &streamDescription) else {
       throw WhisperError.audioProcessingFailed("Failed to create AVAudioFormat.")
     }
 
@@ -1260,7 +1296,7 @@ extension AudioProcessor {
       throw WhisperError.audioProcessingFailed("Failed to create desired format")
     }
 
-    guard let converter = AVAudioConverter(from: nodeFormat, to: desiredFormat) else {
+    guard var converter = AVAudioConverter(from: nodeFormat, to: desiredFormat) else {
       throw WhisperError.audioProcessingFailed("Failed to create audio converter")
     }
 
@@ -1270,9 +1306,30 @@ extension AudioProcessor {
 
     try tap.run(
       on: processingQueue,
-      ioBlock: { [weak self] _, inInputData, _, _, _ in
+      ioBlock: { [weak self] inputTimeStamp, inInputData, _, _, _ in
+          
         guard let self = self else { return }
-        self.processInputData(inInputData, nodeFormat: nodeFormat, converter: converter)
+          let estimatedSampleRate2 = calculateSampleRate(inputTimeStamp: inputTimeStamp)
+//          print("Estimated Sample Rate 2: \(estimatedSampleRate2)")
+          
+          if let estimatedSampleRate2, estimatedSampleRate2 != nodeFormat.sampleRate {
+              nodeFormat = AVAudioFormat(
+                commonFormat: nodeFormat.commonFormat,
+                sampleRate: estimatedSampleRate2,
+                channels: nodeFormat.channelCount,
+                interleaved: nodeFormat.isInterleaved)!
+              guard let newCnverter = AVAudioConverter(from: nodeFormat, to: desiredFormat) else {
+                return
+              }
+              converter = newCnverter
+              self.accumulationBuffer =
+                AVAudioPCMBuffer(pcmFormat: nodeFormat, frameCapacity: AVAudioFrameCount(minBufferLength))!
+              self.accumulationBuffer?.frameLength = 0
+          }
+          numberOfFramesPassed += 1
+          guard numberOfFramesPassed > numbersOfFramesToStabilizeFrameRate else { return }
+          
+          self.processInputData(inInputData, nodeFormat: nodeFormat, converter: converter)
       }, invalidationHandler: invalidationHandler
     )
   }
