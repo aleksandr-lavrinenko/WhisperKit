@@ -1299,6 +1299,8 @@ public protocol ProcessTapProtocol {
   func invalidate(reason: ProcessTapInvalidationReason)
 
   var activated: Bool { get }
+    
+    var isNoseGateOn: Bool { get }
 
   var tapStreamDescription: AudioStreamBasicDescription? { get }
 
@@ -1378,28 +1380,6 @@ extension AudioProcessor {
       ioBlock: { [weak self] inputTimeStamp, inInputData, _, _, _ in
           
         guard let self = self else { return }
-          let estimatedSampleRate2 = calculateSampleRate(inputTimeStamp: inputTimeStamp)
-//          let estimatedSampleRate2 = calculateSamleRate2(inputData: inInputData)
-          
-//          print("Estimated Sample Rate 2: \(estimatedSampleRate2)")
-//          
-//          if let estimatedSampleRate2, estimatedSampleRate2 != nodeFormat.sampleRate {
-//              nodeFormat = AVAudioFormat(
-//                commonFormat: nodeFormat.commonFormat,
-//                sampleRate: estimatedSampleRate2,
-//                channels: nodeFormat.channelCount,
-//                interleaved: nodeFormat.isInterleaved)!
-//              guard let newCnverter = AVAudioConverter(from: nodeFormat, to: desiredFormat) else {
-//                return
-//              }
-//              converter = newCnverter
-//              self.accumulationBuffer =
-//                AVAudioPCMBuffer(pcmFormat: nodeFormat, frameCapacity: AVAudioFrameCount(minBufferLength))!
-//              self.accumulationBuffer?.frameLength = 0
-//          }
-//          numberOfFramesPassed += 1
-//          guard numberOfFramesPassed > numbersOfFramesToStabilizeFrameRate else { return }
-          
           self.processInputData(inInputData, nodeFormat: nodeFormat, converter: converter)
       }, invalidationHandler: invalidationHandler
     )
@@ -1419,11 +1399,30 @@ extension AudioProcessor {
 
     // Determine frame count correctly
     let incomingFrameCount = audioBuffer.mDataByteSize / UInt32(MemoryLayout<Float>.size)
+      
+      var updateNodeFormat = nodeFormat
+      var updateConverter = converter
+      
+      if currentTap?.isNoseGateOn == true && incomingFrameCount > 512 {
+          var sd = updateNodeFormat.streamDescription.pointee
+          sd.mSampleRate *= Double(incomingFrameCount / 512)
+          updateNodeFormat = AVAudioFormat(streamDescription: &sd)!
+          
+          updateConverter = AVAudioConverter(from: updateNodeFormat, to: converter.outputFormat)!
+          
+          if self.accumulationBuffer?.format.sampleRate != updateNodeFormat.sampleRate {
+              self.accumulationBuffer = AVAudioPCMBuffer(
+                pcmFormat: updateNodeFormat,
+                frameCapacity: AVAudioFrameCount(minBufferLength)
+              )!
+              self.accumulationBuffer?.frameLength = 0
+          }
+      }
 
     // Create AVAudioPCMBuffer
     guard
       var pcmBuffer = AVAudioPCMBuffer(
-        pcmFormat: nodeFormat,
+        pcmFormat: updateNodeFormat,
         frameCapacity: AVAudioFrameCount(incomingFrameCount)
       )
     else {
@@ -1458,7 +1457,7 @@ extension AudioProcessor {
     if accBuffer.frameLength == AVAudioFrameCount(minBufferLength) {
       if !accBuffer.format.sampleRate.isEqual(to: Double(WhisperKit.sampleRate)) {
         do {
-          pcmBuffer = try Self.resampleBuffer(accBuffer, with: converter)
+          pcmBuffer = try Self.resampleBuffer(accBuffer, with: updateConverter)
         } catch {
           Logging.error("Failed to resample buffer: \(error)")
           return
@@ -1471,7 +1470,7 @@ extension AudioProcessor {
       self.processBuffer(newBufferArray)
 
       self.accumulationBuffer = AVAudioPCMBuffer(
-        pcmFormat: nodeFormat,
+        pcmFormat: updateNodeFormat,
         frameCapacity: AVAudioFrameCount(minBufferLength)
       )!
       self.accumulationBuffer?.frameLength = 0
