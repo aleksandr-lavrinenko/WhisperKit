@@ -1304,10 +1304,11 @@ public protocol ProcessTapProtocol {
 
   var tapStreamDescription: AudioStreamBasicDescription? { get }
 
-  func run(
-    on queue: DispatchQueue, ioBlock: @escaping AudioDeviceIOBlock,
-    invalidationHandler: ((ProcessTapProtocol, ProcessTapInvalidationReason) -> Void)?
-  ) throws
+    func run(
+      on queue: DispatchQueue,
+      ioBlock: @escaping (_ buffer: AVAudioPCMBuffer) -> Void,
+      invalidationHandler: ((ProcessTapProtocol, ProcessTapInvalidationReason) -> Void)?
+    ) throws
 }
 
 public enum ProcessTapInvalidationReason {
@@ -1371,109 +1372,58 @@ extension AudioProcessor {
       throw WhisperError.audioProcessingFailed("Failed to create audio converter")
     }
 
-    self.accumulationBuffer =
-      AVAudioPCMBuffer(pcmFormat: nodeFormat, frameCapacity: AVAudioFrameCount(minBufferLength))!
-    self.accumulationBuffer?.frameLength = 0
+//    self.accumulationBuffer =
+//      AVAudioPCMBuffer(pcmFormat: nodeFormat, frameCapacity: AVAudioFrameCount(minBufferLength))!
+//    self.accumulationBuffer?.frameLength = 0
 
     try tap.run(
       on: processingQueue,
-      ioBlock: { [weak self] inputTimeStamp, inInputData, _, _, _ in
+      ioBlock: { [weak self] buffer in
           
         guard let self = self else { return }
-          self.processInputData(inInputData, nodeFormat: nodeFormat, converter: converter)
+          self.processInputData(buffer)
       }, invalidationHandler: invalidationHandler
     )
   }
-
-  private func processInputData(
-    _ inInputData: UnsafePointer<AudioBufferList>,
-    nodeFormat: AVAudioFormat,
-    converter: AVAudioConverter
-  ) {
-    // Convert input data to AVAudioPCMBuffer
-    let audioBuffer = inInputData.pointee.mBuffers
-    guard let dataPointer = audioBuffer.mData else {
-      Logging.error("Invalid audio buffer data")
-      return
-    }
-
-    // Determine frame count correctly
-    let incomingFrameCount = audioBuffer.mDataByteSize / UInt32(MemoryLayout<Float>.size)
-      
-      var updateNodeFormat = nodeFormat
-      var updateConverter = converter
-      
-      if currentTap?.isNoseGateOn == true && incomingFrameCount > 512 {
-          var sd = updateNodeFormat.streamDescription.pointee
-          sd.mSampleRate *= Double(incomingFrameCount / 512)
-          updateNodeFormat = AVAudioFormat(streamDescription: &sd)!
-          
-          updateConverter = AVAudioConverter(from: updateNodeFormat, to: converter.outputFormat)!
-          
-          if self.accumulationBuffer?.format.sampleRate != updateNodeFormat.sampleRate {
-              self.accumulationBuffer = AVAudioPCMBuffer(
-                pcmFormat: updateNodeFormat,
-                frameCapacity: AVAudioFrameCount(minBufferLength)
-              )!
-              self.accumulationBuffer?.frameLength = 0
-          }
-      }
-
-    // Create AVAudioPCMBuffer
-    guard
-      var pcmBuffer = AVAudioPCMBuffer(
-        pcmFormat: updateNodeFormat,
-        frameCapacity: AVAudioFrameCount(incomingFrameCount)
-      )
-    else {
-      Logging.error("Failed to create PCM buffer")
-      return
-    }
-
-    pcmBuffer.frameLength = AVAudioFrameCount(incomingFrameCount)
-
-    guard let accBuffer = accumulationBuffer else {
-      Logging.error("Accumulation buffer is nil")
-      return
-    }
-
-    let accFramesUsed = accBuffer.frameLength
-    let accFramesAvailable = accBuffer.frameCapacity - accFramesUsed
-    let framesToCopy = min(accFramesAvailable, incomingFrameCount)
-
-    // Copy data safely
-    if let dstPointer = accBuffer.floatChannelData?[0] {
-      let sourcePointer = dataPointer.assumingMemoryBound(to: Float.self)
-      // Use memcpy for safe memory copying
-      memcpy(
-        dstPointer.advanced(by: Int(accFramesUsed)),
-        sourcePointer,
-        Int(framesToCopy) * MemoryLayout<Float>.size
-      )
-    }
-
-    accBuffer.frameLength += framesToCopy
-
-    if accBuffer.frameLength == AVAudioFrameCount(minBufferLength) {
-      if !accBuffer.format.sampleRate.isEqual(to: Double(WhisperKit.sampleRate)) {
-        do {
-          pcmBuffer = try Self.resampleBuffer(accBuffer, with: updateConverter)
-        } catch {
-          Logging.error("Failed to resample buffer: \(error)")
-          return
+    
+    private func processInputData(
+        _ buffer: AVAudioPCMBuffer) {
+        // Determine frame count correctly
+        var pcmBuffer = buffer
+            if accumulationBuffer == nil {
+                self.accumulationBuffer =
+                AVAudioPCMBuffer(pcmFormat: pcmBuffer.format, frameCapacity: AVAudioFrameCount(minBufferLength))!
+                self.accumulationBuffer?.frameLength = 0
+            }
+            guard let accBuffer = accumulationBuffer else { return }
+        let accFramesUsed = accBuffer.frameLength
+        let accFramesAvailable = accBuffer.frameCapacity - accFramesUsed
+        let framesToCopy = min(accFramesAvailable, AVAudioFrameCount(buffer.frameLength))
+        
+        // Copy data safely
+        if let dstPointer = accBuffer.floatChannelData?[0] {
+            // Use memcpy for safe memory copying
+            memcpy(
+                dstPointer.advanced(by: Int(accFramesUsed)),
+                pcmBuffer.floatChannelData![0],
+                Int(framesToCopy) * MemoryLayout<Float>.size
+            )
         }
-      } else {
-        pcmBuffer = accBuffer
-      }
-
-      let newBufferArray = Self.convertBufferToArray(buffer: pcmBuffer)
-      self.processBuffer(newBufferArray)
-
-      self.accumulationBuffer = AVAudioPCMBuffer(
-        pcmFormat: updateNodeFormat,
-        frameCapacity: AVAudioFrameCount(minBufferLength)
-      )!
-      self.accumulationBuffer?.frameLength = 0
+        
+        accBuffer.frameLength += framesToCopy
+        
+        if accBuffer.frameLength == AVAudioFrameCount(minBufferLength) {
+        } else {
+            pcmBuffer = accBuffer
+        }
+        
+        let newBufferArray = Self.convertBufferToArray(buffer: pcmBuffer)
+        self.processBuffer(newBufferArray)
+        
+        self.accumulationBuffer = AVAudioPCMBuffer(
+            pcmFormat: pcmBuffer.format,
+            frameCapacity: AVAudioFrameCount(minBufferLength)
+        )!
+        self.accumulationBuffer?.frameLength = 0
     }
-  }
 }
