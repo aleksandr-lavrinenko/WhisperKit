@@ -241,6 +241,7 @@ public class AudioProcessor: NSObject, AudioProcessing {
   }
     
     var lastSampleTime: Float64 = 0
+    var lastHostTime: UInt64 = 0
 
     let standardSampleRates: [Float64] = [8000, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 176400]
     
@@ -248,26 +249,53 @@ public class AudioProcessor: NSObject, AudioProcessing {
     
     var numberOfFramesPassed = 0
 
+    func machTicksToSeconds(_ ticks: UInt64) -> Double {
+        var timebase = mach_timebase_info_data_t()
+        mach_timebase_info(&timebase)
+        return Double(ticks) * Double(timebase.numer) / Double(timebase.denom) / 1_000_000_000.0
+    }
+
     func calculateSampleRate(inputTimeStamp: UnsafePointer<AudioTimeStamp>) -> Float64? {
         guard inputTimeStamp.pointee.mSampleTime > lastSampleTime else { return nil }
 
         let sampleTimeDelta = inputTimeStamp.pointee.mSampleTime - lastSampleTime
-        let timeDelta = Double(inputTimeStamp.pointee.mHostTime) - lastTimestamp
+        let timeDelta = machTicksToSeconds(inputTimeStamp.pointee.mHostTime) - machTicksToSeconds(lastHostTime)
 
         lastSampleTime = inputTimeStamp.pointee.mSampleTime
-        lastTimestamp = Double(inputTimeStamp.pointee.mHostTime)
+        lastHostTime = inputTimeStamp.pointee.mHostTime
 
         guard timeDelta > 0 else { return nil } // Avoid division by zero
 
-        let estimatedSampleRate = sampleTimeDelta / (Double(timeDelta) / Double(NSEC_PER_SEC))
-        
-        print("Estimated sample rate: \(estimatedSampleRate)")
+        let estimatedSampleRate = sampleTimeDelta / timeDelta
 
         // Round to the closest standard sample rate
         let closestSampleRate = standardSampleRates.min(by: { abs($0 - estimatedSampleRate) < abs($1 - estimatedSampleRate) }) ?? estimatedSampleRate
-        
-        print("Closest sample rate: \(closestSampleRate)")
 
+        print("Raw Sample Time Delta: \(sampleTimeDelta)")
+        print("Raw Time Delta (seconds): \(timeDelta)")
+        print("Estimated Sample Rate: \(estimatedSampleRate)")
+        print("Closest Sample Rate: \(closestSampleRate)")
+
+        return closestSampleRate
+    }
+    
+    func calculateSamleRate2(inputData: UnsafePointer<AudioBufferList>) -> Double? {
+        let currentTime = CFAbsoluteTimeGetCurrent()
+        let elapsedTime = currentTime - lastTimestamp
+        lastTimestamp = currentTime
+
+        // Extract the number of frames from AudioBufferList
+        let audioBufferList = inputData.pointee
+        guard let audioBuffer = audioBufferList.mBuffers.mData else { return nil }
+
+        // Assuming mono or interleaved format, calculate frame count
+        let frameCount = Int(audioBufferList.mBuffers.mDataByteSize) / MemoryLayout<Float32>.size
+
+        // Estimate the sample rate
+        let estimatedSampleRate = elapsedTime > 0 ? Double(frameCount) / elapsedTime : 0.0
+        print("Estimated Sample Rate: \(estimatedSampleRate)")
+        
+        let closestSampleRate = standardSampleRates.min(by: { abs($0 - estimatedSampleRate) < abs($1 - estimatedSampleRate) }) ?? estimatedSampleRate
         return closestSampleRate
     }
 
@@ -997,7 +1025,7 @@ extension AudioProcessor {
     var status: OSStatus
 
     let audioUnitType: UInt32 =
-      noiseGate ? kAudioUnitSubType_VoiceProcessingIO : kAudioUnitSubType_HALOutput
+        noiseGate ? kAudioUnitSubType_VoiceProcessingIO : kAudioUnitSubType_HALOutput
     // 🔹 Describe the Audio Component
     var desc = AudioComponentDescription(
       componentType: kAudioUnitType_Output,
@@ -1310,24 +1338,26 @@ extension AudioProcessor {
           
         guard let self = self else { return }
           let estimatedSampleRate2 = calculateSampleRate(inputTimeStamp: inputTimeStamp)
-//          print("Estimated Sample Rate 2: \(estimatedSampleRate2)")
+//          let estimatedSampleRate2 = calculateSamleRate2(inputData: inInputData)
           
-          if let estimatedSampleRate2, estimatedSampleRate2 != nodeFormat.sampleRate {
-              nodeFormat = AVAudioFormat(
-                commonFormat: nodeFormat.commonFormat,
-                sampleRate: estimatedSampleRate2,
-                channels: nodeFormat.channelCount,
-                interleaved: nodeFormat.isInterleaved)!
-              guard let newCnverter = AVAudioConverter(from: nodeFormat, to: desiredFormat) else {
-                return
-              }
-              converter = newCnverter
-              self.accumulationBuffer =
-                AVAudioPCMBuffer(pcmFormat: nodeFormat, frameCapacity: AVAudioFrameCount(minBufferLength))!
-              self.accumulationBuffer?.frameLength = 0
-          }
-          numberOfFramesPassed += 1
-          guard numberOfFramesPassed > numbersOfFramesToStabilizeFrameRate else { return }
+//          print("Estimated Sample Rate 2: \(estimatedSampleRate2)")
+//          
+//          if let estimatedSampleRate2, estimatedSampleRate2 != nodeFormat.sampleRate {
+//              nodeFormat = AVAudioFormat(
+//                commonFormat: nodeFormat.commonFormat,
+//                sampleRate: estimatedSampleRate2,
+//                channels: nodeFormat.channelCount,
+//                interleaved: nodeFormat.isInterleaved)!
+//              guard let newCnverter = AVAudioConverter(from: nodeFormat, to: desiredFormat) else {
+//                return
+//              }
+//              converter = newCnverter
+//              self.accumulationBuffer =
+//                AVAudioPCMBuffer(pcmFormat: nodeFormat, frameCapacity: AVAudioFrameCount(minBufferLength))!
+//              self.accumulationBuffer?.frameLength = 0
+//          }
+//          numberOfFramesPassed += 1
+//          guard numberOfFramesPassed > numbersOfFramesToStabilizeFrameRate else { return }
           
           self.processInputData(inInputData, nodeFormat: nodeFormat, converter: converter)
       }, invalidationHandler: invalidationHandler
