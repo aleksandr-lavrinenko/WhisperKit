@@ -1372,10 +1372,6 @@ extension AudioProcessor {
       throw WhisperError.audioProcessingFailed("Failed to create audio converter")
     }
 
-//    self.accumulationBuffer =
-//      AVAudioPCMBuffer(pcmFormat: nodeFormat, frameCapacity: AVAudioFrameCount(minBufferLength))!
-//    self.accumulationBuffer?.frameLength = 0
-
     try tap.run(
       on: processingQueue,
       ioBlock: { [weak self] buffer in
