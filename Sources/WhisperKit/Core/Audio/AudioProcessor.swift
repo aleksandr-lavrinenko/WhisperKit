@@ -200,7 +200,7 @@ public class AudioProcessor: NSObject, AudioProcessing {
   private let kInputBus: UInt32 = 1
 
   private let kOutputBus: UInt32 = 0
-    var lastTimestamp: CFAbsoluteTime = 0
+  var lastTimestamp: CFAbsoluteTime = 0
   private var lastInputDevice: DeviceID?
   private var currentTap: ProcessTapProtocol?
   private let processingQueue = DispatchQueue(
@@ -239,72 +239,79 @@ public class AudioProcessor: NSObject, AudioProcessing {
       numFrames: inNumberFrames, ioData: ioData)
     return noErr
   }
-    
-    var lastSampleTime: Float64 = 0
-    var lastHostTime: UInt64 = 0
 
-    let standardSampleRates: [Float64] = [8000, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 176400]
-    
-    let numbersOfFramesToStabilizeFrameRate = 3
-    
-    var numberOfFramesPassed = 0
+  var lastSampleTime: Float64 = 0
+  var lastHostTime: UInt64 = 0
 
-    func machTicksToSeconds(_ ticks: UInt64) -> Double {
-        var timebase = mach_timebase_info_data_t()
-        mach_timebase_info(&timebase)
-        return Double(ticks) * Double(timebase.numer) / Double(timebase.denom) / 1_000_000_000.0
-    }
+  let standardSampleRates: [Float64] = [
+    8000, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 176400,
+  ]
 
-    func calculateSampleRate(inputTimeStamp: UnsafePointer<AudioTimeStamp>) -> Float64? {
-        guard inputTimeStamp.pointee.mSampleTime > lastSampleTime else { return nil }
+  let numbersOfFramesToStabilizeFrameRate = 3
 
-        let sampleTimeDelta = inputTimeStamp.pointee.mSampleTime - lastSampleTime
-        let timeDelta = machTicksToSeconds(inputTimeStamp.pointee.mHostTime) - machTicksToSeconds(lastHostTime)
+  var numberOfFramesPassed = 0
 
-        lastSampleTime = inputTimeStamp.pointee.mSampleTime
-        lastHostTime = inputTimeStamp.pointee.mHostTime
+  func machTicksToSeconds(_ ticks: UInt64) -> Double {
+    var timebase = mach_timebase_info_data_t()
+    mach_timebase_info(&timebase)
+    return Double(ticks) * Double(timebase.numer) / Double(timebase.denom) / 1_000_000_000.0
+  }
 
-        guard timeDelta > 0 else { return nil } // Avoid division by zero
+  func calculateSampleRate(inputTimeStamp: UnsafePointer<AudioTimeStamp>) -> Float64? {
+    guard inputTimeStamp.pointee.mSampleTime > lastSampleTime else { return nil }
 
-        let estimatedSampleRate = sampleTimeDelta / timeDelta
+    let sampleTimeDelta = inputTimeStamp.pointee.mSampleTime - lastSampleTime
+    let timeDelta =
+      machTicksToSeconds(inputTimeStamp.pointee.mHostTime) - machTicksToSeconds(lastHostTime)
 
-        // Round to the closest standard sample rate
-        let closestSampleRate = standardSampleRates.min(by: { abs($0 - estimatedSampleRate) < abs($1 - estimatedSampleRate) }) ?? estimatedSampleRate
+    lastSampleTime = inputTimeStamp.pointee.mSampleTime
+    lastHostTime = inputTimeStamp.pointee.mHostTime
 
-        print("Raw Sample Time Delta: \(sampleTimeDelta)")
-        print("Raw Time Delta (seconds): \(timeDelta)")
-        print("Estimated Sample Rate: \(estimatedSampleRate)")
-        print("Closest Sample Rate: \(closestSampleRate)")
+    guard timeDelta > 0 else { return nil }  // Avoid division by zero
 
-        return closestSampleRate
-    }
-    
-    func calculateSamleRate2(inputData: UnsafePointer<AudioBufferList>) -> Double? {
-        let currentTime = CFAbsoluteTimeGetCurrent()
-        let elapsedTime = currentTime - lastTimestamp
-        lastTimestamp = currentTime
+    let estimatedSampleRate = sampleTimeDelta / timeDelta
 
-        // Extract the number of frames from AudioBufferList
-        let audioBufferList = inputData.pointee
-        guard let audioBuffer = audioBufferList.mBuffers.mData else { return nil }
+    // Round to the closest standard sample rate
+    let closestSampleRate =
+      standardSampleRates.min(by: { abs($0 - estimatedSampleRate) < abs($1 - estimatedSampleRate) })
+      ?? estimatedSampleRate
 
-        // Assuming mono or interleaved format, calculate frame count
-        let frameCount = Int(audioBufferList.mBuffers.mDataByteSize) / MemoryLayout<Float32>.size
+    print("Raw Sample Time Delta: \(sampleTimeDelta)")
+    print("Raw Time Delta (seconds): \(timeDelta)")
+    print("Estimated Sample Rate: \(estimatedSampleRate)")
+    print("Closest Sample Rate: \(closestSampleRate)")
 
-        // Estimate the sample rate
-        let estimatedSampleRate = elapsedTime > 0 ? Double(frameCount) / elapsedTime : 0.0
-        print("Estimated Sample Rate: \(estimatedSampleRate)")
-        
-        let closestSampleRate = standardSampleRates.min(by: { abs($0 - estimatedSampleRate) < abs($1 - estimatedSampleRate) }) ?? estimatedSampleRate
-        return closestSampleRate
-    }
+    return closestSampleRate
+  }
+
+  func calculateSamleRate2(inputData: UnsafePointer<AudioBufferList>) -> Double? {
+    let currentTime = CFAbsoluteTimeGetCurrent()
+    let elapsedTime = currentTime - lastTimestamp
+    lastTimestamp = currentTime
+
+    // Extract the number of frames from AudioBufferList
+    let audioBufferList = inputData.pointee
+    guard let audioBuffer = audioBufferList.mBuffers.mData else { return nil }
+
+    // Assuming mono or interleaved format, calculate frame count
+    let frameCount = Int(audioBufferList.mBuffers.mDataByteSize) / MemoryLayout<Float32>.size
+
+    // Estimate the sample rate
+    let estimatedSampleRate = elapsedTime > 0 ? Double(frameCount) / elapsedTime : 0.0
+    print("Estimated Sample Rate: \(estimatedSampleRate)")
+
+    let closestSampleRate =
+      standardSampleRates.min(by: { abs($0 - estimatedSampleRate) < abs($1 - estimatedSampleRate) })
+      ?? estimatedSampleRate
+    return closestSampleRate
+  }
 
   private func processAudio(
     ioActionFlags: UnsafeMutablePointer<AudioUnitRenderActionFlags>,
     inTimeStamp: UnsafePointer<AudioTimeStamp>, bus: UInt32, numFrames: UInt32,
     ioData: UnsafeMutablePointer<AudioBufferList>?
   ) {
-    
+
     guard let audioUnit = audioUnit ?? audioEngine?.inputNode.audioUnit else { return }
     if bus == kInputBus {
 
@@ -982,7 +989,7 @@ extension AudioProcessor {
         &inputDeviceID,
         UInt32(MemoryLayout<AudioDeviceID>.size)
       )
-        
+
       if error != noErr {
         Logging.error("Error setting Audio Unit property: \(error)")
       } else {
@@ -1015,20 +1022,20 @@ extension AudioProcessor {
   public func startRecordingLive(
     inputDeviceID: DeviceID? = nil, noiseGate: Bool = false, callback: (([Float]) -> Void)? = nil
   ) throws {
-      audioBufferCallback = callback
-      if !noiseGate {
-          audioEngine = try? setupEngine(inputDeviceID: inputDeviceID)
-          return
-          
-      }
-    if audioUnit == nil {
-        try! setupAudioUnit(noiseGate: noiseGate, inputDeviceID: inputDeviceID)
+    audioBufferCallback = callback
+    if !noiseGate {
+      audioEngine = try? setupEngine(inputDeviceID: inputDeviceID)
+      return
+
     }
-    
+    if audioUnit == nil {
+      try! setupAudioUnit(noiseGate: noiseGate, inputDeviceID: inputDeviceID)
+    }
+
     try startAudioUnit()
   }
 
-private func setupAudioUnit(noiseGate: Bool, inputDeviceID: DeviceID?) throws {
+  private func setupAudioUnit(noiseGate: Bool, inputDeviceID: DeviceID?) throws {
     var status: OSStatus
 
     // 🔹 Describe the Audio Component
@@ -1077,108 +1084,115 @@ private func setupAudioUnit(noiseGate: Bool, inputDeviceID: DeviceID?) throws {
     )
 
     status = AudioUnitSetProperty(
-        audioUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, kInputBus, &audioFormat,
-        UInt32(MemoryLayout<AudioStreamBasicDescription>.size))
+      audioUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, kInputBus, &audioFormat,
+      UInt32(MemoryLayout<AudioStreamBasicDescription>.size))
     checkStatus(status, message: "Error setting input format")
-    
+
     status = AudioUnitSetProperty(
-        audioUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, kOutputBus, &audioFormat,
-        UInt32(MemoryLayout<AudioStreamBasicDescription>.size))
+      audioUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, kOutputBus, &audioFormat,
+      UInt32(MemoryLayout<AudioStreamBasicDescription>.size))
     checkStatus(status, message: "Error setting output format")
-
-
 
     // 🔹 Set input callback
     var callbackStruct = AURenderCallbackStruct(
       inputProc: audioRenderCallback,
       inputProcRefCon: Unmanaged.passUnretained(self).toOpaque()
     )
-    
+
     status = AudioUnitSetProperty(
-        audioUnit, kAudioOutputUnitProperty_SetInputCallback, kAudioUnitScope_Global, kInputBus,
-        &callbackStruct, UInt32(MemoryLayout.size(ofValue: callbackStruct)))
-    
+      audioUnit, kAudioOutputUnitProperty_SetInputCallback, kAudioUnitScope_Global, kInputBus,
+      &callbackStruct, UInt32(MemoryLayout.size(ofValue: callbackStruct)))
+
     checkStatus(status, message: "Error setting input callback")
     var deviceID = inputDeviceID!
     AudioUnitSetProperty(
-        audioUnit,
-        kAudioOutputUnitProperty_CurrentDevice,
-        kAudioUnitScope_Global,
-        kInputBus,  // 🔹 Assign to input
-        &deviceID,
-        UInt32(MemoryLayout<AudioDeviceID>.size)
+      audioUnit,
+      kAudioOutputUnitProperty_CurrentDevice,
+      kAudioUnitScope_Global,
+      kInputBus,  // 🔹 Assign to input
+      &deviceID,
+      UInt32(MemoryLayout<AudioDeviceID>.size)
     )
     checkStatus(status, message: "Error setting input callback")
-    
-    
+
     var configuration = AUVoiceIOOtherAudioDuckingConfiguration(
-        mEnableAdvancedDucking: false, mDuckingLevel: .min)
-    
+      mEnableAdvancedDucking: false, mDuckingLevel: .min)
+
     status = AudioUnitSetProperty(
-        audioUnit,
-        kAUVoiceIOProperty_OtherAudioDuckingConfiguration,
-        kAudioUnitScope_Global,
-        0,
-        &configuration,
-        UInt32(MemoryLayout.size(ofValue: configuration)))
-    
+      audioUnit,
+      kAUVoiceIOProperty_OtherAudioDuckingConfiguration,
+      kAudioUnitScope_Global,
+      0,
+      &configuration,
+      UInt32(MemoryLayout.size(ofValue: configuration)))
+
     if status != noErr {
-        print("Error setting ducking level: \(status)")
+      print("Error setting ducking level: \(status)")
     }
-    
+
     // 🔹 Initialize and start
     status = AudioUnitInitialize(audioUnit)
     checkStatus(status, message: "Error initializing AudioUnit")
-}
-    
-    func setupEngine(inputDeviceID: DeviceID? = nil) throws -> AVAudioEngine {
-        let audioEngine = AVAudioEngine()
-        let inputNode = audioEngine.inputNode
-        
-#if os(macOS)
-        if let inputDeviceID = inputDeviceID {
-            assignAudioInput(inputNode: inputNode, inputDeviceID: inputDeviceID)
-        }
-#endif
-        
-        let hardwareSampleRate = audioEngine.inputNode.inputFormat(forBus: 0).sampleRate
-        let inputFormat = inputNode.outputFormat(forBus: 0)
-        
-        guard let nodeFormat = AVAudioFormat(commonFormat: inputFormat.commonFormat, sampleRate: hardwareSampleRate, channels: inputFormat.channelCount, interleaved: inputFormat.isInterleaved) else {
-            throw WhisperError.audioProcessingFailed("Failed to create node format")
-        }
-        
-        // Desired format (16,000 Hz, 1 channel)
-        guard let desiredFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: Double(WhisperKit.sampleRate), channels: AVAudioChannelCount(1), interleaved: false) else {
-            throw WhisperError.audioProcessingFailed("Failed to create desired format")
-        }
-        
-        guard let converter = AVAudioConverter(from: nodeFormat, to: desiredFormat) else {
-            throw WhisperError.audioProcessingFailed("Failed to create audio converter")
-        }
-        
-        let bufferSize = AVAudioFrameCount(minBufferLength) // 100ms - 400ms supported
-        inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: nodeFormat) { [weak self] (buffer: AVAudioPCMBuffer, _: AVAudioTime) in
-            guard let self = self else { return }
-            var buffer = buffer
-            if !buffer.format.sampleRate.isEqual(to: Double(WhisperKit.sampleRate)) {
-                do {
-                    buffer = try Self.resampleBuffer(buffer, with: converter)
-                } catch {
-                    Logging.error("Failed to resample buffer: \(error)")
-                    return
-                }
-            }
-            
-            let newBufferArray = Self.convertBufferToArray(buffer: buffer)
-            self.processBuffer(newBufferArray)
-        }
-        
-        audioEngine.prepare()
-        try audioEngine.start()
-        
-        return audioEngine
+  }
+
+  func setupEngine(inputDeviceID: DeviceID? = nil) throws -> AVAudioEngine {
+    let audioEngine = AVAudioEngine()
+    audioEngine.prepare()
+    let inputNode = audioEngine.inputNode
+
+    #if os(macOS)
+      if let inputDeviceID = inputDeviceID {
+        assignAudioInput(inputNode: inputNode, inputDeviceID: inputDeviceID)
+      }
+    #endif
+
+    let hardwareSampleRate = audioEngine.inputNode.inputFormat(forBus: 0).sampleRate
+    let inputFormat = inputNode.outputFormat(forBus: 0)
+
+    guard
+      let nodeFormat = AVAudioFormat(
+        commonFormat: inputFormat.commonFormat, sampleRate: hardwareSampleRate,
+        channels: inputFormat.channelCount, interleaved: inputFormat.isInterleaved)
+    else {
+      throw WhisperError.audioProcessingFailed("Failed to create node format")
     }
+
+    // Desired format (16,000 Hz, 1 channel)
+    guard
+      let desiredFormat = AVAudioFormat(
+        commonFormat: .pcmFormatFloat32, sampleRate: Double(WhisperKit.sampleRate),
+        channels: AVAudioChannelCount(1), interleaved: false)
+    else {
+      throw WhisperError.audioProcessingFailed("Failed to create desired format")
+    }
+
+    guard let converter = AVAudioConverter(from: nodeFormat, to: desiredFormat) else {
+      throw WhisperError.audioProcessingFailed("Failed to create audio converter")
+    }
+
+    let bufferSize = AVAudioFrameCount(minBufferLength)  // 100ms - 400ms supported
+    inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: nodeFormat) {
+      [weak self] (buffer: AVAudioPCMBuffer, _: AVAudioTime) in
+      guard let self = self else { return }
+      var buffer = buffer
+      if !buffer.format.sampleRate.isEqual(to: Double(WhisperKit.sampleRate)) {
+        do {
+          buffer = try Self.resampleBuffer(buffer, with: converter)
+        } catch {
+          Logging.error("Failed to resample buffer: \(error)")
+          return
+        }
+      }
+
+      let newBufferArray = Self.convertBufferToArray(buffer: buffer)
+      self.processBuffer(newBufferArray)
+    }
+
+    audioEngine.prepare()
+    try audioEngine.start()
+
+    return audioEngine
+  }
 
   /// Starts the AudioUnit for live recording
   private func startAudioUnit() throws {
@@ -1288,10 +1302,10 @@ private func setupAudioUnit(noiseGate: Bool, inputDeviceID: DeviceID?) throws {
     audioEngine = nil
 
     teardownAudioUnit()
-      
+
     numberOfFramesPassed = 0
   }
-    
+
 }
 
 public protocol ProcessTapProtocol {
@@ -1299,16 +1313,16 @@ public protocol ProcessTapProtocol {
   func invalidate(reason: ProcessTapInvalidationReason)
 
   var activated: Bool { get }
-    
-    var isNoseGateOn: Bool { get }
+
+  var isNoseGateOn: Bool { get }
 
   var tapStreamDescription: AudioStreamBasicDescription? { get }
 
-    func run(
-      on queue: DispatchQueue,
-      ioBlock: @escaping (_ buffer: AVAudioPCMBuffer) -> Void,
-      invalidationHandler: ((ProcessTapProtocol, ProcessTapInvalidationReason) -> Void)?
-    ) throws
+  func run(
+    on queue: DispatchQueue,
+    ioBlock: @escaping (_ buffer: AVAudioPCMBuffer) -> Void,
+    invalidationHandler: ((ProcessTapProtocol, ProcessTapInvalidationReason) -> Void)?
+  ) throws
 }
 
 public enum ProcessTapInvalidationReason {
@@ -1375,51 +1389,53 @@ extension AudioProcessor {
     try tap.run(
       on: processingQueue,
       ioBlock: { [weak self] buffer in
-          
+
         guard let self = self else { return }
-          self.processInputData(buffer)
+        self.processInputData(buffer)
       }, invalidationHandler: invalidationHandler
     )
   }
-    
-    private func processInputData(
-        _ buffer: AVAudioPCMBuffer) {
-        // Determine frame count correctly
-        var pcmBuffer = buffer
-            if accumulationBuffer == nil {
-                self.accumulationBuffer =
-                AVAudioPCMBuffer(pcmFormat: pcmBuffer.format, frameCapacity: AVAudioFrameCount(minBufferLength))!
-                self.accumulationBuffer?.frameLength = 0
-            }
-            guard let accBuffer = accumulationBuffer else { return }
-        let accFramesUsed = accBuffer.frameLength
-        let accFramesAvailable = accBuffer.frameCapacity - accFramesUsed
-        let framesToCopy = min(accFramesAvailable, AVAudioFrameCount(buffer.frameLength))
-        
-        // Copy data safely
-        if let dstPointer = accBuffer.floatChannelData?[0] {
-            // Use memcpy for safe memory copying
-            memcpy(
-                dstPointer.advanced(by: Int(accFramesUsed)),
-                pcmBuffer.floatChannelData![0],
-                Int(framesToCopy) * MemoryLayout<Float>.size
-            )
-        }
-        
-        accBuffer.frameLength += framesToCopy
-        
-        if accBuffer.frameLength == AVAudioFrameCount(minBufferLength) {
-        } else {
-            pcmBuffer = accBuffer
-        }
-        
-        let newBufferArray = Self.convertBufferToArray(buffer: pcmBuffer)
-        self.processBuffer(newBufferArray)
-        
-        self.accumulationBuffer = AVAudioPCMBuffer(
-            pcmFormat: pcmBuffer.format,
-            frameCapacity: AVAudioFrameCount(minBufferLength)
-        )!
-        self.accumulationBuffer?.frameLength = 0
+
+  private func processInputData(
+    _ buffer: AVAudioPCMBuffer
+  ) {
+    // Determine frame count correctly
+    var pcmBuffer = buffer
+    if accumulationBuffer == nil {
+      self.accumulationBuffer =
+        AVAudioPCMBuffer(
+          pcmFormat: pcmBuffer.format, frameCapacity: AVAudioFrameCount(minBufferLength))!
+      self.accumulationBuffer?.frameLength = 0
     }
+    guard let accBuffer = accumulationBuffer else { return }
+    let accFramesUsed = accBuffer.frameLength
+    let accFramesAvailable = accBuffer.frameCapacity - accFramesUsed
+    let framesToCopy = min(accFramesAvailable, AVAudioFrameCount(buffer.frameLength))
+
+    // Copy data safely
+    if let dstPointer = accBuffer.floatChannelData?[0] {
+      // Use memcpy for safe memory copying
+      memcpy(
+        dstPointer.advanced(by: Int(accFramesUsed)),
+        pcmBuffer.floatChannelData![0],
+        Int(framesToCopy) * MemoryLayout<Float>.size
+      )
+    }
+
+    accBuffer.frameLength += framesToCopy
+
+    if accBuffer.frameLength == AVAudioFrameCount(minBufferLength) {
+    } else {
+      pcmBuffer = accBuffer
+    }
+
+    let newBufferArray = Self.convertBufferToArray(buffer: pcmBuffer)
+    self.processBuffer(newBufferArray)
+
+    self.accumulationBuffer = AVAudioPCMBuffer(
+      pcmFormat: pcmBuffer.format,
+      frameCapacity: AVAudioFrameCount(minBufferLength)
+    )!
+    self.accumulationBuffer?.frameLength = 0
+  }
 }
