@@ -1432,6 +1432,7 @@ extension AudioProcessor {
     let newBufferArray = Self.convertBufferToArray(buffer: pcmBuffer)
     self.processBuffer(newBufferArray)
 
+    self.accumulationBuffer = nil
     self.accumulationBuffer = AVAudioPCMBuffer(
       pcmFormat: pcmBuffer.format,
       frameCapacity: AVAudioFrameCount(minBufferLength)
