@@ -49,6 +49,8 @@ public protocol AudioProcessing {
     saveSegment: Bool
   ) -> MLMultiArray?
 
+  var ignoreIncomingBuffers: Bool { get set }
+
   /// Stores the audio samples to be transcribed
   var audioSamples: ContiguousArray<Float> { get }
 
@@ -208,6 +210,8 @@ public class AudioProcessor: NSObject, AudioProcessing {
   private var accumulationBuffer: AVAudioPCMBuffer?
 
   public var audioEngine: AVAudioEngine?
+
+  public var ignoreIncomingBuffers: Bool = false
 
   // Add serial queue for thread-safe access
   private let audioQueue = DispatchQueue(label: "com.whisperkit.audioprocessor.audioSampleQueue")
@@ -949,27 +953,31 @@ extension AudioProcessor {
   /// We have a new buffer, process and store it.
   /// NOTE: Assumes audio is 16khz mono
   public func processBuffer(_ buffer: [Float]) {
-    audioQueue.sync {
-      _audioSamples.append(contentsOf: buffer)
-    }
+    if !ignoreIncomingBuffers {
+      audioQueue.sync {
+        _audioSamples.append(contentsOf: buffer)
+      }
 
-    // Find the lowest average energy of the last 20 buffers ~2 seconds
-    let minAvgEnergy = self.audioEnergy.suffix(20).reduce(Float.infinity) { min($0, $1.avg) }
-    let relativeEnergy = Self.calculateRelativeEnergy(of: buffer, relativeTo: minAvgEnergy)
+      // Find the lowest average energy of the last 20 buffers ~2 seconds
+      let minAvgEnergy = self.audioEnergy.suffix(20).reduce(Float.infinity) { min($0, $1.avg) }
+      let relativeEnergy = Self.calculateRelativeEnergy(of: buffer, relativeTo: minAvgEnergy)
 
-    // Update energy for buffers with valid data
-    let signalEnergy = Self.calculateEnergy(of: buffer)
-    let newEnergy = (relativeEnergy, signalEnergy.avg, signalEnergy.max, signalEnergy.min)
-    self.audioEnergy.append(newEnergy)
+      // Update energy for buffers with valid data
+      let signalEnergy = Self.calculateEnergy(of: buffer)
+      let newEnergy = (relativeEnergy, signalEnergy.avg, signalEnergy.max, signalEnergy.min)
+      self.audioEnergy.append(newEnergy)
 
-    // Call the callback with the new buffer
-    audioBufferCallback?(buffer)
+            // Call the callback with the new buffer
+      audioBufferCallback?(buffer)
 
-    // Print the current size of the audio buffer
-    if self.audioSamples.count % (minBufferLength * Int(relativeEnergyWindow)) == 0 {
-      Logging.debug(
-        "Current audio size: \(self.audioSamples.count) samples, most recent buffer: \(buffer.count) samples, most recent energy: \(newEnergy)"
-      )
+      // Print the current size of the audio buffer
+      if self.audioSamples.count % (minBufferLength * Int(relativeEnergyWindow)) == 0 {
+        Logging.debug(
+          "Current audio size: \(self.audioSamples.count) samples, most recent buffer: \(buffer.count) samples, most recent energy: \(newEnergy)"
+        )
+      }
+    } else {
+      Logging.debug("Ignoring incoming buffer")
     }
   }
 
